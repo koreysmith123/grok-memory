@@ -1,0 +1,9 @@
+[
+  {
+    "botId": "test-bot",
+    "conversationId": "conversation-1",
+    "generationId": "generation-1",
+    "user": "Remember that the emulator must use production hooks.",
+    "assistant": "I will validate through the production hook and MCP paths."
+  }
+]

@@ -1,0 +1,43 @@
+{
+  "name": "grok-memory",
+  "version": "0.1.0",
+  "description": "Per-Bot experiential memory for GrokBot, powered by Grok Build and EmbeddingGemma",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "bin": { "grok-memory": "dist/cli.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node scripts/clean.mjs",
+    "lint": "eslint src test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/run-suite.mjs deterministic",
+    "test:postgres": "node scripts/run-suite.mjs postgres",
+    "test:live": "node scripts/run-suite.mjs live",
+    "test:install": "node scripts/clean-install-test.mjs",
+    "test:e2e": "node scripts/real-emulator-test.mjs",
+    "validate:deterministic": "npm run typecheck && npm run lint && npm test && npm run build && npm audit --audit-level=high",
+    "report": "node scripts/validate.mjs",
+    "validate": "npm run validate:deterministic && npm run test:postgres && npm run test:install && npm run test:e2e && npm run test:live && npm run report"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.2.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@xai-official/grok": "1.0.13",
+    "pg": "8.23.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/pg": "^8.15.0",
+    "eslint": "10.9.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "8.68.0"
+  },
+  "overrides": {
+    "adm-zip": "0.6.0",
+    "onnxruntime-node": "1.29.0",
+    "sharp": "0.35.4"
+  }
+}

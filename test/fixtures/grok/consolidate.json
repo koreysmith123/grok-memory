@@ -1,0 +1,23 @@
+{
+  "operations": [
+    {
+      "operation": "create",
+      "memory": {
+        "trigger": {
+          "concrete": "Pattie is validating Grok Memory through the emulator.",
+          "abstract": "A builder is validating an agent-memory system before production.",
+          "meta": "A complex system is proven in simulation before deployment."
+        },
+        "body": {
+          "concrete": "Use the contract-faithful emulator before connecting a real GrokBot.",
+          "abstract": "Test the real integration boundaries rather than a parallel mock path.",
+          "meta": "Confidence comes from exercising the same boundaries production uses."
+        },
+        "importance": 85,
+        "scopeType": "bot",
+        "scopeKey": "test-bot",
+        "sourceGenerationId": "fixture-generation"
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "grok-memory",
+  "displayName": "Grok Memory",
+  "description": "Private per-Bot experiential memory with automatic three-level recall",
+  "version": "0.1.0",
+  "author": { "name": "Pattie Rae" },
+  "license": "MIT",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills"
+}

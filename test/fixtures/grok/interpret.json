@@ -1,0 +1,5 @@
+{
+  "concrete": "Pattie is building a GrokBot memory emulator and validating automatic recall.",
+  "abstract": "Someone is testing a persistent agent-memory integration before deploying it to the real host.",
+  "meta": "A system is validated in a faithful simulation before it is trusted in production."
+}

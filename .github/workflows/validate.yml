@@ -1,0 +1,32 @@
+name: validate
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: grok_memory_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d grok_memory_test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck && npm run lint && npm test && npm run build && npm audit --audit-level=high
+      - run: psql "$ADMIN_URL" -c "CREATE ROLE grok_memory_app LOGIN PASSWORD 'test';"
+        env: { ADMIN_URL: "postgresql://postgres:postgres@127.0.0.1:5432/grok_memory_test" }
+      - run: node dist/cli.js migrate
+        env:
+          GROK_MEMORY_MIGRATION_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/grok_memory_test"
+          DATABASE_URL: "postgresql://grok_memory_app:test@127.0.0.1:5432/grok_memory_test"
+          GROK_MEMORY_APP_ROLE: grok_memory_app
+      - run: npm run test:postgres
+        env:
+          GROK_MEMORY_TEST_DATABASE_URL: "postgresql://grok_memory_app:test@127.0.0.1:5432/grok_memory_test"
+          GROK_MEMORY_TEST_ADMIN_DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5432/grok_memory_test"
