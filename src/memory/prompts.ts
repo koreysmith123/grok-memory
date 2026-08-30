@@ -13,8 +13,13 @@ decisions, successful/failed strategies, and durable project facts. Do not save 
 secrets, credentials, or content that has no likely future value. Prefer updating or reinforcing an
 existing memory over duplication. Each memory has concrete/abstract/meta trigger and body strings,
 importance 0-100, scopeType bot|project|conversation, scopeKey, and sourceGenerationId.
-Allowed operations: create(memory), update(targetId,memory,reason), merge(targetId,memory,reason),
-supersede(targetId,memory,reason), reinforce(targetId,reason), or none(reason).`;
+Every operation object MUST use the exact discriminator key "operation". Never use "type", "action",
+or another alias. Exact forms are:
+{"operation":"none","reason":"..."}
+{"operation":"create","memory":{"trigger":{"concrete":"...","abstract":"...","meta":"..."},"body":{"concrete":"...","abstract":"...","meta":"..."},"importance":80,"scopeType":"bot","scopeKey":"...","sourceGenerationId":"..."}}
+{"operation":"reinforce","targetId":"UUID","reason":"..."}
+{"operation":"update|merge|supersede","targetId":"UUID","memory":{...same complete memory object...},"reason":"..."}
+Do not include any keys not shown in the applicable form.`;
 
 export function interpretationPrompt(transcript: string): string {
   return `${INTERPRET_SYSTEM}\n\n<untrusted_transcript>\n${transcript}\n</untrusted_transcript>`;

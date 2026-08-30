@@ -21,12 +21,16 @@ export class GrokBuildClient implements GrokReasoner {
 
   async interpret(prompt: string, signal?: AbortSignal): Promise<ThreeLevels> {
     const text = await this.invoke("interpret", prompt, signal);
-    return threeLevelsSchema.parse(parseJsonObject(text));
+    const parsed = threeLevelsSchema.safeParse(parseJsonObject(text));
+    if (!parsed.success) throw new Error(`Grok Build interpretation schema violation: ${parsed.error.issues.map(issue => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+    return parsed.data;
   }
 
   async consolidate(prompt: string, signal?: AbortSignal): Promise<ConsolidationOperation[]> {
     const text = await this.invoke("consolidate", prompt, signal);
-    return consolidationSchema.parse(parseJsonObject(text)).operations as ConsolidationOperation[];
+    const parsed = consolidationSchema.safeParse(parseJsonObject(text));
+    if (!parsed.success) throw new Error(`Grok Build consolidation schema violation: ${parsed.error.issues.map(issue => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
+    return parsed.data.operations as ConsolidationOperation[];
   }
 
   private async invoke(kind: "interpret" | "consolidate", prompt: string, signal?: AbortSignal): Promise<string> {

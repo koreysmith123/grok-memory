@@ -163,3 +163,27 @@ test("EMU-007 stale worker leases are recovered after a daemon restart", { skip:
     await repo.finishJob(recovered!.id, true);
   } finally { await admin.close(); await repo.close(); }
 });
+
+test("DB-003 EMU-007 failed jobs retry with backoff and become terminal after three attempts", { skip: !enabled }, async () => {
+  const repo = new PostgresRepository(databaseUrl); const admin = new PostgresRepository(adminDatabaseUrl);
+  try {
+    const bot = identity(`retry-${crypto.randomUUID()}`, "retry-conversation");
+    await repo.completeTurnAndEnqueue({ identity: bot, generationId: "retry-generation", userText: "u", assistantText: "a" });
+    let targetId = "";
+    for (let expected = 1; expected <= 3; expected++) {
+      let claimed;
+      for (let index = 0; index < 100; index++) {
+        const candidate = await repo.claimJob(`retry-worker-${expected}`); if (!candidate) break;
+        if (candidate.botId === bot.botId) { claimed = candidate; break; }
+        await repo.finishJob(candidate.id, true);
+      }
+      assert.equal(claimed?.attempts, expected); targetId = claimed!.id;
+      await repo.finishJob(targetId, false, `failure-${expected}`);
+      if (expected < 3) await admin.pool.query("UPDATE jobs SET available_at=now() WHERE id=$1", [targetId]);
+    }
+    const row = (await admin.pool.query("SELECT state,attempts,last_error,locked_at,locked_by FROM jobs WHERE id=$1", [targetId])).rows[0];
+    assert.deepEqual({ state: row.state, attempts: row.attempts, lastError: row.last_error, lockedAt: row.locked_at, lockedBy: row.locked_by },
+      { state: "failed", attempts: 3, lastError: "failure-3", lockedAt: null, lockedBy: null });
+    assert.equal(await repo.claimJob("retry-worker-final"), undefined);
+  } finally { await admin.close(); await repo.close(); }
+});

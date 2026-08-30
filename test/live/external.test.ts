@@ -10,12 +10,20 @@ import { consolidationPrompt, interpretationPrompt } from "../../src/memory/prom
 
 const enabled = process.env.GROK_MEMORY_LIVE_TEST === "1";
 
-test("EMU-005 MOD-001 live authenticated Grok Build returns validated three-level interpretation", { skip: !enabled, timeout: 120_000 }, async () => {
+async function liveClient() {
   const dataDir = await mkdtemp(join(tmpdir(), "grok-memory-live-"));
   const grokModel = process.env.GROK_MEMORY_MODEL?.trim();
-  const client = new GrokBuildClient({ grokBinary: process.env.GROK_MEMORY_GROK_BINARY ?? "grok", dataDir, ...(grokModel ? { grokModel } : {}) });
+  return new GrokBuildClient({ grokBinary: process.env.GROK_MEMORY_GROK_BINARY ?? "grok", dataDir, ...(grokModel ? { grokModel } : {}) });
+}
+
+test("EMU-005 MOD-001 live authenticated Grok Build returns validated three-level interpretation", { skip: !enabled, timeout: 180_000 }, async () => {
+  const client = await liveClient();
   const levels = await client.interpret(interpretationPrompt("A developer is testing an agent memory adapter."));
   assert.ok(levels.concrete.length > 3); assert.ok(levels.abstract.length > 3); assert.ok(levels.meta.length > 3);
+});
+
+test("EMU-005 MOD-001 live authenticated Grok Build returns validated consolidation operations", { skip: !enabled, timeout: 180_000 }, async () => {
+  const client = await liveClient();
   const operations = await client.consolidate(consolidationPrompt({ generationId: "live-validation", botId: "validation-bot",
     conversationId: "validation-conversation", userText: "Please verify the memory adapter.", assistantText: "The adapter was verified.", existingMemories: "" }));
   assert.ok(Array.isArray(operations)); assert.ok(operations.length <= 12);

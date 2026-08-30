@@ -146,7 +146,11 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 $$;
 CREATE OR REPLACE FUNCTION grok_memory_finish_job(target uuid, succeeded boolean, failure text)
 RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp AS $$
-  UPDATE jobs SET state=CASE WHEN succeeded THEN 'done' ELSE 'failed' END,last_error=left(failure,2000),updated_at=now() WHERE id=target;
+  UPDATE jobs SET
+    state=CASE WHEN succeeded THEN 'done' WHEN attempts < 3 THEN 'queued' ELSE 'failed' END,
+    available_at=CASE WHEN NOT succeeded AND attempts < 3 THEN now()+make_interval(secs => (1 << attempts)) ELSE available_at END,
+    locked_at=NULL, locked_by=NULL, last_error=CASE WHEN succeeded THEN NULL ELSE left(failure,2000) END, updated_at=now()
+  WHERE id=target;
 $$;
 CREATE OR REPLACE FUNCTION grok_memory_queue_depth()
 RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$ SELECT count(*) FROM jobs WHERE state='queued' $$;
