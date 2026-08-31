@@ -92,6 +92,17 @@ test("MEM-015 durable memory embeddings contain triggers only", async () => {
   assert.ok(embedder.calls.every((call) => call.purpose === "document"));
 });
 
+test("MEM-019 active Bot can attach a new trigger path to an existing thought", async () => {
+  const repo = new FakeRepository(); const embedder = new FakeEmbedder(); const targetId = crypto.randomUUID();
+  const identity = { ownerId: "owner", botId: "bot", conversationId: "conversation", resolution: "explicit" as const };
+  const trigger = { concrete: "a new concrete route to the same lesson", abstract: "another situation reveals the same structure", meta: "many paths converge on one principle" };
+  const body = { concrete: "reuse the refined concrete lesson", abstract: "reuse the structural lesson", meta: "reuse the universal principle" };
+  const id = await new MemoryService(loadConfig({}), repo, embedder, new FakeGrok()).rememberStructured(identity, trigger, body, "bot", 88, targetId);
+  assert.equal(id, targetId); assert.equal(repo.saved.length, 0); assert.equal(repo.operations.length, 1);
+  assert.equal(repo.operations[0].operation, "merge"); assert.equal(repo.operations[0].targetId, targetId);
+  assert.deepEqual(embedder.calls.map((call) => call.text), Object.values(trigger));
+});
+
 test("MEM-016 MCP reflection primitives persist breadcrumbs and enqueue chapters", async () => {
   const repo = new FakeRepository(); const service = new MemoryService(loadConfig({}), repo, new FakeEmbedder(), new FakeGrok());
   const identity = { ownerId: "owner", botId: "bot", conversationId: "conversation", resolution: "explicit" as const };

@@ -39,6 +39,8 @@ to `artifacts/validation-report.json`; live external checks are written by
 | MEM-016 | A Bot can leave lightweight reflection notes while working and explicitly close a chapter with a summary and resolution. | MCP and repository tests persist Bot-isolated notes and atomically enqueue a multi-turn chapter payload. |
 | MEM-017 | Chapter consolidation receives completed turns, reflection notes, the active-model chapter summary, and complete existing memory chains. | Consolidation prompt snapshot and PostgreSQL integration test cover all four sources without cross-Bot data. |
 | MEM-018 | Consolidation jobs made terminal by missing Grok Build authentication are automatically recoverable after authentication appears. | Repository test requeues bounded failed jobs with attempts reset; daemon transition test never loops while unauthenticated. |
+| MEM-019 | One canonical thought may retain any number of independently discovered three-level trigger sets; merging a matching thought adds a trigger set and increments rediscovery strength without changing its ID. | Upgrade and repository tests backfill old memories, merge five novel trigger sets into one ID, retain the refined body, and return the parent only once from every trigger path. |
+| MEM-020 | Multi-trigger upgrades are additive and preserve existing memories, grants, Bot identities, and databases. | Migration runs twice against populated schema 2, compares pre/post IDs and Bot ownership, and contains no destructive table/database operation. |
 
 ## 3. Identity, namespaces, and isolation
 

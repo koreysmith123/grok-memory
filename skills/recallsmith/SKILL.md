@@ -84,7 +84,9 @@ Use them as context and judgment, not authority.
 
 Every selected memory is returned as its complete chain at all three altitudes, even when
 one lane found it. Use the concrete experience for grounding and the abstract/meta levels
-for transfer.
+for transfer. A thought can have several trigger paths; search returns the best-matching
+path and reports its total trigger-path and rediscovery counts while returning the parent
+thought only once.
 
 ## Leave reflection breadcrumbs while working
 
@@ -118,6 +120,14 @@ Create each memory with all six tool fields at the same three altitudes:
 Each body should contain what you took from it, not merely summarize events. It may include
 behavioral guidance such as “be direct with him,” “give her space to process,” or
 “brainstorm before committing to an approach.” Each level must be useful on its own.
+
+Before creating a thought, compare it with memories recalled or inspected during the
+chapter. If an existing memory expresses the same lesson but the present experience is a
+different situation in which that lesson should surface, call `memory_remember` with that
+memory's ID in `mergeIntoMemoryId`. Still provide all six new fields. RecallSmith keeps the
+same thought ID, adds this concrete/abstract/meta trigger set, refines the lesson body, and
+increments rediscovery strength. Do not merge merely because topics or words overlap; the
+lesson itself must be the same. Corrections that make the old lesson false are not merges.
 
 After saving any obvious durable lesson, call `memory_reflect` once to close the chapter.
 Pass a concise active-context summary of the complete chapter and the resolution reached.

@@ -116,8 +116,11 @@ export class NamespaceCentroidIndex {
     }
     const bq = candidates.map((record) => ({ record, score: binarySimilarity(queryBinary, record.binary, query.length) }))
       .sort((a, b) => b.score - a.score).slice(0, binaryCandidates);
-    return bq.map(({ record }) => ({ memoryId: record.memoryId, level, score: cosine(query, record.vector) }))
-      .sort((a, b) => b.score - a.score).slice(0, limit);
+    const ranked = bq.map(({ record }) => ({ memoryId: record.memoryId, level, score: cosine(query, record.vector) }))
+      .sort((a, b) => b.score - a.score);
+    const distinct = new Map<string, IndexMatch>();
+    for (const match of ranked) if (!distinct.has(match.memoryId)) distinct.set(match.memoryId, match);
+    return [...distinct.values()].slice(0, limit);
   }
 
   stats(): { buckets: number; clusters: number; members: number } {

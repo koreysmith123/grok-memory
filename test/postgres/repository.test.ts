@@ -32,7 +32,7 @@ test("DB-002 DB-005 DB-006 DB-008 migrations, vector/FTS search, and health", { 
     assert.ok(hits.some((item) => item.trigger.includes("oranges")));
     assert.ok(hits[0]!.vectorScore > .99); assert.ok(hits[0]!.lexicalScore >= 0);
     assert.match(hits[0]!.chain.trigger.abstract, /choosing oranges/); assert.match(hits[0]!.chain.body.meta, /past outcomes/);
-    const health = await repo.health(); assert.equal(health.ok, true); assert.equal(health.schema_version, 2); assert.ok(health.pgvector_version);
+    const health = await repo.health(); assert.equal(health.ok, true); assert.equal(health.schema_version, 3); assert.ok(health.pgvector_version);
     assert.ok("active_workers" in health); assert.ok("oldest_worker_lease" in health); assert.ok("last_completed_job" in health);
   } finally { await admin.close(); await repo.close(); }
 });
@@ -50,6 +50,53 @@ test("MEM-015 upgrades existing trigger-plus-body vectors to trigger-only versio
     await admin.updateTriggerEmbeddings(memoryId, embeddings(8));
     const row = (await admin.pool.query("SELECT embedding_version,embedding_concrete::text AS vector FROM memories WHERE id=$1", [memoryId])).rows[0];
     assert.equal(row.embedding_version, 2); assert.match(row.vector, /^\[0,0,0,0,0,0,0,0,1,/);
+    const triggerSet = (await admin.pool.query("SELECT embedding_concrete::text AS vector FROM memory_trigger_sets WHERE memory_id=$1", [memoryId])).rows[0];
+    assert.match(triggerSet.vector, /^\[0,0,0,0,0,0,0,0,1,/);
+  } finally { await admin.close(); await repo.close(); }
+});
+
+test("MEM-019 one thought retains five three-level trigger paths and returns once per search", { skip: !enabled }, async () => {
+  const repo = new PostgresRepository(databaseUrl);
+  try {
+    const suffix = crypto.randomUUID(); const bot = identity(`multi-trigger-${suffix}`, `conversation-${suffix}`);
+    const memoryId = await repo.save(bot, draft(bot.botId, "bot", bot.botId, `seed-${suffix}`, "oranges"), embeddings(100));
+    const nouns = ["lemons", "limes", "pears", "peaches"];
+    for (const [index, noun] of nouns.entries()) {
+      const merged = draft(bot.botId, "bot", bot.botId, `merge-${index}-${suffix}`, noun);
+      merged.body = { concrete: `refined lesson after ${noun}`, abstract: "one lesson can arise through several situations", meta: "independent paths can converge on one principle" };
+      await repo.apply(bot, { operation: "merge", targetId: memoryId, memory: merged, reason: "same lesson, new situation" }, embeddings(101 + index));
+    }
+    const inspected = (await repo.inspect(bot, 20)).find((row) => row.id === memoryId)!;
+    assert.equal(inspected.trigger_count, 5); assert.equal(inspected.merge_count, 4);
+    assert.match(String(inspected.body_concrete), /peaches/);
+    assert.deepEqual((inspected.trigger_sets as any[]).map((item) => item.concrete),
+      [`${bot.botId} is choosing oranges`, ...nouns.map((noun) => `${bot.botId} is choosing ${noun}`)]);
+    for (const [index, noun] of ["oranges", ...nouns].entries()) {
+      const hits = await repo.search(bot, "concrete", noun, vector(100 + index), 10);
+      assert.equal(hits.filter((hit) => hit.id === memoryId).length, 1);
+      assert.match(hits.find((hit) => hit.id === memoryId)!.trigger, new RegExp(noun));
+      assert.equal(hits.find((hit) => hit.id === memoryId)!.chain.triggerCount, 5);
+    }
+    const duplicate = draft(bot.botId, "bot", bot.botId, `duplicate-${suffix}`, "peaches");
+    await repo.apply(bot, { operation: "merge", targetId: memoryId, memory: duplicate, reason: "rediscovered identically" }, embeddings(104));
+    const afterDuplicate = (await repo.inspect(bot, 20)).find((row) => row.id === memoryId)!;
+    assert.equal(afterDuplicate.trigger_count, 5); assert.equal(afterDuplicate.merge_count, 5);
+  } finally { await repo.close(); }
+});
+
+test("MEM-020 schema-2 data is additively backfilled without changing memories, grants, or Bot ownership", { skip: !enabled }, async () => {
+  const repo = new PostgresRepository(databaseUrl); const admin = new PostgresRepository(adminDatabaseUrl);
+  try {
+    const suffix = crypto.randomUUID(); const bot = identity(`upgrade-owner-${suffix}`, `upgrade-conversation-${suffix}`);
+    const memoryId = await repo.save(bot, draft(bot.botId, "bot", bot.botId, `upgrade-${suffix}`), embeddings(120));
+    await repo.grant(bot, memoryId, `upgrade-grantee-${suffix}`);
+    await admin.pool.query("DELETE FROM memory_trigger_sets WHERE memory_id=$1", [memoryId]);
+    const before = (await admin.pool.query("SELECT id,owner_id,bot_id,status FROM memories WHERE id=$1", [memoryId])).rows[0];
+    await admin.migrate("grok_memory_app"); await admin.migrate("grok_memory_app");
+    const after = (await admin.pool.query("SELECT id,owner_id,bot_id,status FROM memories WHERE id=$1", [memoryId])).rows[0];
+    assert.deepEqual(after, before);
+    assert.equal(Number((await admin.pool.query("SELECT count(*) FROM memory_trigger_sets WHERE memory_id=$1", [memoryId])).rows[0].count), 1);
+    assert.equal(Number((await admin.pool.query("SELECT count(*) FROM memory_grants WHERE memory_id=$1", [memoryId])).rows[0].count), 1);
   } finally { await admin.close(); await repo.close(); }
 });
 
@@ -171,7 +218,7 @@ test("EMU-001 EMU-005 EMU-006 EMU-007 MCP-005 production hooks handle concurrent
   }
 });
 
-test("MEM-008 every consolidation operation executes transactionally", { skip: !enabled }, async () => {
+test("MEM-008 MEM-019 every consolidation operation executes transactionally", { skip: !enabled }, async () => {
   const repo = new PostgresRepository(databaseUrl);
   try {
     const bot = identity(`operations-${crypto.randomUUID()}`, "operations-conversation");
@@ -179,12 +226,17 @@ test("MEM-008 every consolidation operation executes transactionally", { skip: !
     await repo.apply(bot, { operation: "create", memory: draft(bot.botId, "bot", bot.botId, `create-${crypto.randomUUID()}`) }, embeddings(50));
     const reinforced = await repo.save(bot, draft(bot.botId, "bot", bot.botId, `reinforce-${crypto.randomUUID()}`), embeddings(51));
     await repo.apply(bot, { operation: "reinforce", targetId: reinforced, reason: "confirmed" });
-    for (const [index, operation] of ["update", "merge", "supersede"].entries()) {
+    for (const [index, operation] of ["update", "supersede"].entries()) {
       const targetId = await repo.save(bot, draft(bot.botId, "bot", bot.botId, `${operation}-old-${crypto.randomUUID()}`), embeddings(52 + index));
       const replacement = draft(bot.botId, "bot", bot.botId, `${operation}-new-${crypto.randomUUID()}`, `${operation}-fruit`);
       await repo.apply(bot, { operation, targetId, memory: replacement, reason: "new evidence" }, embeddings(60 + index));
       assert.ok((await repo.inspect(bot, 100)).some(item => item.trigger_concrete === replacement.trigger.concrete));
     }
+    const mergeTarget = await repo.save(bot, draft(bot.botId, "bot", bot.botId, `merge-old-${crypto.randomUUID()}`), embeddings(54));
+    const mergeMemory = draft(bot.botId, "bot", bot.botId, `merge-new-${crypto.randomUUID()}`, "merge-fruit");
+    await repo.apply(bot, { operation: "merge", targetId: mergeTarget, memory: mergeMemory, reason: "new path" }, embeddings(60));
+    const merged = (await repo.inspect(bot, 100)).find((item) => item.id === mergeTarget)!;
+    assert.equal(merged.trigger_count, 2); assert.equal(merged.merge_count, 1);
     await assert.rejects(repo.apply(bot, { operation: "reinforce", targetId: crypto.randomUUID(), reason: "hallucinated" }));
   } finally { await repo.close(); }
 });

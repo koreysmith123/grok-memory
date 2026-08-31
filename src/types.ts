@@ -19,7 +19,10 @@ export interface MemoryDraft {
 
 export interface MemoryChain {
   id: string;
+  triggerSetId?: string;
   trigger: ThreeLevels;
+  triggerCount?: number;
+  mergeCount?: number;
   body: ThreeLevels;
   importance: number;
   usefulness: number;

@@ -49,7 +49,8 @@ export function formatContext(hits: SearchHit[], maxChars = 9_500): string | und
   let body = "";
   for (const hit of hits) {
     const chain = hit.chain;
-    const item = `\n- [memory:${hit.id} matched_lane:${hit.level} scope:${hit.scopeType} relevance:${hit.finalScore.toFixed(3)}]\n` +
+    const item = `\n- [memory:${hit.id} matched_lane:${hit.level} scope:${hit.scopeType} relevance:${hit.finalScore.toFixed(3)}` +
+      `${chain.triggerCount === undefined ? "" : ` trigger_paths:${chain.triggerCount} rediscoveries:${chain.mergeCount ?? 0}`} ]\n` +
       `  Concrete situation: ${safeText(chain.trigger.concrete)}\n  Concrete lesson: ${safeText(chain.body.concrete)}\n` +
       `  Abstract situation: ${safeText(chain.trigger.abstract)}\n  Abstract lesson: ${safeText(chain.body.abstract)}\n` +
       `  Meta situation: ${safeText(chain.trigger.meta)}\n  Meta lesson: ${safeText(chain.body.meta)}\n`;
@@ -150,13 +151,17 @@ export class MemoryService {
   }
 
   async rememberStructured(identity: Identity, trigger: ThreeLevels, body: ThreeLevels,
-    scopeType: "bot" | "project" | "conversation" = "bot", importance = 70): Promise<string> {
+    scopeType: "bot" | "project" | "conversation" = "bot", importance = 70, mergeIntoMemoryId?: string): Promise<string> {
     const scopeKey = scopeType === "conversation" ? identity.conversationId : scopeType === "project" ? identity.projectId ?? identity.botId : identity.botId;
     const draft = memoryDraftSchema.parse({ trigger, body, importance,
       scopeType, scopeKey, sourceGenerationId: `explicit:${crypto.randomUUID()}` });
-    const id = await this.repository.save(identity, draft, await embeddingsForDraft(this.embedder, draft));
+    const embeddings = await embeddingsForDraft(this.embedder, draft);
+    const id = mergeIntoMemoryId ?? await this.repository.save(identity, draft, embeddings);
+    if (mergeIntoMemoryId) await this.repository.apply(identity,
+      { operation: "merge", targetId: mergeIntoMemoryId, memory: draft, reason: "active Bot recognized the same lesson through a new situation" }, embeddings);
     this.shadowReady.delete(this.namespaceKey(identity));
-    await this.repository.recordEvent(identity, "remember", draft.sourceGenerationId, { memoryId: id, scopeType }).catch(() => undefined);
+    await this.repository.recordEvent(identity, "remember", draft.sourceGenerationId,
+      { memoryId: id, scopeType, ...(mergeIntoMemoryId ? { mergedInto: mergeIntoMemoryId } : {}) }).catch(() => undefined);
     return id;
   }
 

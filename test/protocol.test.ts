@@ -76,6 +76,8 @@ test("MCP-001 MCP-002 MCP-003 MCP-004 MCP-006 MCP-007 MCP-008 production MCP ser
     for (const field of ["triggerConcrete", "triggerAbstract", "triggerMeta", "bodyConcrete", "bodyAbstract", "bodyMeta"]) {
       assert.ok(field in (rememberTool.inputSchema.properties ?? {}), `missing ${field}`);
     }
+    assert.ok("mergeIntoMemoryId" in (rememberTool.inputSchema.properties ?? {}));
+    assert.match(rememberTool.description ?? "", /same lesson.*another way/is);
     const requestCount = daemon.requests.length;
     const invalid = await client.callTool({ name: "memory_recall", arguments: { currentContext: "complete context but no identity", concrete: "specific current task", abstract: "general problem class", meta: "recurring strategy pattern" } });
     assert.equal(invalid.isError, true);

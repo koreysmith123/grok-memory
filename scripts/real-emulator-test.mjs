@@ -44,6 +44,18 @@ try {
       bodyMeta: "private experience must remain identity-scoped", scopeType: "bot" }),
   ]);
   assert.match(aMemory.id, /^[0-9a-f-]{36}$/); assert.match(bMemory.id, /^[0-9a-f-]{36}$/);
+  const mergedA = await client.tool("remember", { ...identities[0],
+    triggerConcrete: "Bot A encounters the same alpha calibration lesson through a second deployment route",
+    triggerAbstract: "an agent reaches one private lesson through another operational situation",
+    triggerMeta: "several experiences can converge on one durable principle",
+    bodyConcrete: "Bot A retains the refined alpha-real-embedding-private-memory lesson",
+    bodyAbstract: "retain one lesson while preserving every situation that should evoke it",
+    bodyMeta: "one principle can have many retrieval paths", scopeType: "bot", mergeIntoMemoryId: aMemory.id });
+  assert.equal(mergedA.id, aMemory.id);
+  const mergedInspect = await client.tool("inspect", { ...identities[0], limit: 20 });
+  const mergedRow = mergedInspect.memories.find(memory => memory.id === aMemory.id);
+  assert.equal(mergedRow.trigger_count, 2); assert.equal(mergedRow.merge_count, 1);
+  assert.equal(mergedRow.trigger_sets.length, 2);
   const recallArgs = { ...identities[0], currentContext: "retrieve the alpha private memory while measuring recall latency",
     concrete: "retrieve alpha-real-embedding-private-memory for bot A",
     abstract: "recall a private agent memory by semantic similarity",

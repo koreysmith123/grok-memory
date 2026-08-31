@@ -151,3 +151,17 @@ test("MEM-014 MEM-015 MEM-016 MEM-017 MEM-018 MCP-008 QUA-009 restored NeoSmith 
   const migration = await readFile(resolve(root, "migrations/002_reflection_and_observability.sql"), "utf8");
   for (const feature of ["reflection_notes", "chapter_state", "memory_events", "grok_memory_requeue_failed"]) assert.match(migration, new RegExp(feature));
 });
+
+test("MEM-019 MEM-020 multi-trigger thoughts upgrade additively", async () => {
+  const migration = await readFile(resolve(root, "migrations/003_multi_trigger_thoughts.sql"), "utf8");
+  for (const phrase of ["memory_trigger_sets", "merge_count", "ON CONFLICT"])
+    assert.match(migration, new RegExp(phrase, "i"));
+  assert.match(migration, /schema_migrations\(version\) VALUES \(3\)/i);
+  assert.doesNotMatch(migration, /DROP\s+(TABLE|DATABASE)|TRUNCATE/i);
+  const repository = await readFile(resolve(root, "src/db.ts"), "utf8");
+  assert.match(repository, /operation\.operation === "merge"/);
+  assert.match(repository, /merge_count=merge_count\+1/);
+  assert.match(repository, /insertTriggerSet/);
+  const prompt = await readFile(resolve(root, "src/memory/prompts.ts"), "utf8");
+  assert.match(prompt, /additional searchable trigger set/i);
+});

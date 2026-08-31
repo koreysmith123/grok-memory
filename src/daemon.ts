@@ -109,7 +109,7 @@ export class MemoryDaemon {
       const trigger = threeLevelsSchema.parse({ concrete: args.triggerConcrete, abstract: args.triggerAbstract, meta: args.triggerMeta });
       const body = threeLevelsSchema.parse({ concrete: args.bodyConcrete, abstract: args.bodyAbstract, meta: args.bodyMeta });
       return send(res, 200, { id: await this.service.rememberStructured(identity, trigger, body,
-        (args.scopeType as any) ?? "bot", Number(args.importance ?? 70)) });
+        (args.scopeType as any) ?? "bot", Number(args.importance ?? 70), args.mergeIntoMemoryId ? String(args.mergeIntoMemoryId) : undefined) });
     }
     if (name === "bind") { await this.repository.bind(identity); return send(res, 200, { ok: true, identity }); }
     if (name === "inspect") return send(res, 200, { memories: await this.repository.inspect(identity, Math.min(100, Number(args.limit ?? 20))) });

@@ -194,22 +194,34 @@ export class PostgresRepository implements MemoryRepository {
       // migrations, and some operator commands may connect as a table owner or
       // superuser, for whom PostgreSQL can bypass RLS. Cross-Bot rows are visible
       // only when an explicit grant exists.
-      const scope = `(owner_id=$7 AND ((bot_id=$3 AND ((scope_type='bot' AND scope_key=$3) OR (scope_type='conversation' AND scope_key=$4) OR (scope_type='project' AND $5::text IS NOT NULL AND scope_key=$5))) OR (bot_id<>$3 AND EXISTS (SELECT 1 FROM memory_grants grant_row WHERE grant_row.memory_id=memories.id AND grant_row.grantee_bot_id=$3))))`;
+      const scope = `(m.owner_id=$7 AND ((m.bot_id=$3 AND ((m.scope_type='bot' AND m.scope_key=$3) OR (m.scope_type='conversation' AND m.scope_key=$4) OR (m.scope_type='project' AND $5::text IS NOT NULL AND m.scope_key=$5))) OR (m.bot_id<>$3 AND EXISTS (SELECT 1 FROM memory_grants grant_row WHERE grant_row.memory_id=m.id AND grant_row.grantee_bot_id=$3))))`;
+      const candidateLimit = Math.max(limit * 12, 36);
       const result = await client.query(`WITH vector_candidates AS MATERIALIZED (
-        SELECT id FROM memories WHERE status='active' AND ${scope} ORDER BY embedding_${column} <=> $1::vector LIMIT $6
-      ), lexical_candidates AS MATERIALIZED (
-        SELECT id FROM memories WHERE status='active' AND ${scope}
-        AND to_tsvector('english',trigger_${column} || ' ' || body_${column}) @@ plainto_tsquery('english',$2)
-        ORDER BY ts_rank_cd(to_tsvector('english',trigger_${column} || ' ' || body_${column}), plainto_tsquery('english',$2)) DESC LIMIT $6
-      ), candidates AS (SELECT id FROM vector_candidates UNION SELECT id FROM lexical_candidates)
-      SELECT id, '${level}' AS level, trigger_${column} AS trigger, body_${column} AS body,
-        trigger_concrete,trigger_abstract,trigger_meta,body_concrete,body_abstract,body_meta,
-        scope_type, scope_key, 1-(embedding_${column} <=> $1::vector) AS vector_score,
-        ts_rank_cd(to_tsvector('english',trigger_${column} || ' ' || body_${column}), plainto_tsquery('english',$2)) AS lexical_score,
-        importance, usefulness, updated_at
-        FROM memories WHERE id IN (SELECT id FROM candidates)`,
-        [vectorLiteral(embedding), text, identity.botId, identity.conversationId, identity.projectId ?? null, limit * 3, identity.ownerId]);
-      return result.rows.map((row: any) => {
+        SELECT t.id FROM memory_trigger_sets t JOIN memories m ON m.id=t.memory_id
+        WHERE m.status='active' AND ${scope} ORDER BY t.embedding_${column} <=> $1::vector LIMIT $6
+      ), lexical_trigger_candidates AS MATERIALIZED (
+        SELECT t.id FROM memory_trigger_sets t JOIN memories m ON m.id=t.memory_id
+        WHERE m.status='active' AND ${scope}
+        AND to_tsvector('english',t.trigger_${column}) @@ plainto_tsquery('english',$2)
+        ORDER BY ts_rank_cd(to_tsvector('english',t.trigger_${column}), plainto_tsquery('english',$2)) DESC LIMIT $6
+      ), lexical_body_candidates AS MATERIALIZED (
+        SELECT (SELECT t.id FROM memory_trigger_sets t WHERE t.memory_id=m.id ORDER BY t.created_at LIMIT 1) AS id
+        FROM memories m WHERE m.status='active' AND ${scope}
+        AND to_tsvector('english',m.body_${column}) @@ plainto_tsquery('english',$2)
+        ORDER BY ts_rank_cd(to_tsvector('english',m.body_${column}),plainto_tsquery('english',$2)) DESC LIMIT $6
+      ), candidates AS (SELECT id FROM vector_candidates UNION SELECT id FROM lexical_trigger_candidates UNION SELECT id FROM lexical_body_candidates WHERE id IS NOT NULL), counts AS (
+        SELECT memory_id,count(*)::int AS trigger_count FROM memory_trigger_sets GROUP BY memory_id
+      )
+      SELECT m.id,t.id AS trigger_set_id,'${level}' AS level,t.trigger_${column} AS trigger,m.body_${column} AS body,
+        t.trigger_concrete,t.trigger_abstract,t.trigger_meta,m.body_concrete,m.body_abstract,m.body_meta,
+        m.scope_type,m.scope_key,1-(t.embedding_${column} <=> $1::vector) AS vector_score,
+        ts_rank_cd(to_tsvector('english',t.trigger_${column}),plainto_tsquery('english',$2)) +
+          ts_rank_cd(to_tsvector('english',m.body_${column}),plainto_tsquery('english',$2)) AS lexical_score,
+        m.importance,m.usefulness,m.merge_count,counts.trigger_count,m.updated_at
+      FROM candidates c JOIN memory_trigger_sets t ON t.id=c.id JOIN memories m ON m.id=t.memory_id
+      JOIN counts ON counts.memory_id=m.id`,
+        [vectorLiteral(embedding), text, identity.botId, identity.conversationId, identity.projectId ?? null, candidateLimit, identity.ownerId]);
+      const ranked = result.rows.map((row: any) => {
         const ageDays = Math.max(0, (Date.now() - new Date(row.updated_at).getTime()) / 86_400_000);
         const vectorScore = Number(row.vector_score);
         const lexicalScore = Math.min(1, Number(row.lexical_score) * 4);
@@ -218,11 +230,15 @@ export class PostgresRepository implements MemoryRepository {
         return { id: row.id, level, trigger: row.trigger, body: row.body, scopeType: row.scope_type, scopeKey: row.scope_key,
           vectorScore, lexicalScore, importance, usefulness, updatedAt: new Date(row.updated_at),
           finalScore: scoreMemory({ vectorScore, lexicalScore: Number(row.lexical_score), importance, usefulness, ageDays }),
-          chain: { id: row.id,
+          chain: { id: row.id, triggerSetId: row.trigger_set_id,
             trigger: { concrete: row.trigger_concrete, abstract: row.trigger_abstract, meta: row.trigger_meta },
+            triggerCount: Number(row.trigger_count), mergeCount: Number(row.merge_count),
             body: { concrete: row.body_concrete, abstract: row.body_abstract, meta: row.body_meta },
             importance, usefulness, scopeType: row.scope_type, scopeKey: row.scope_key, updatedAt: new Date(row.updated_at) } } satisfies SearchHit;
-      }).sort((a: SearchHit, b: SearchHit) => b.finalScore - a.finalScore).slice(0, limit);
+      }).sort((a: SearchHit, b: SearchHit) => b.finalScore - a.finalScore);
+      const distinct = new Map<string, SearchHit>();
+      for (const hit of ranked) if (!distinct.has(hit.id)) distinct.set(hit.id, hit);
+      return [...distinct.values()].slice(0, limit);
     });
   }
 
@@ -247,7 +263,19 @@ export class PostgresRepository implements MemoryRepository {
         ON CONFLICT(owner_id,bot_id,source_generation_id,trigger_concrete) DO UPDATE SET importance=GREATEST(memories.importance,excluded.importance),updated_at=now() RETURNING id`,
         [identity.ownerId, identity.botId, draft.scopeType, draft.scopeKey, draft.trigger.concrete, draft.trigger.abstract, draft.trigger.meta,
           draft.body.concrete, draft.body.abstract, draft.body.meta, vectorLiteral(embeddings.concrete), vectorLiteral(embeddings.abstract), vectorLiteral(embeddings.meta), draft.importance, draft.sourceGenerationId]);
-      return result.rows[0].id as string;
+      const id = result.rows[0].id as string;
+      await this.insertTriggerSet(client, identity, id, draft, embeddings);
+      return id;
+  }
+
+  private async insertTriggerSet(client: PoolClient, identity: Identity, memoryId: string, draft: MemoryDraft,
+    embeddings: Record<MemoryLevel, number[]>): Promise<void> {
+    await client.query(`INSERT INTO memory_trigger_sets(memory_id,owner_id,bot_id,trigger_concrete,trigger_abstract,trigger_meta,
+      embedding_concrete,embedding_abstract,embedding_meta,source_generation_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7::vector,$8::vector,$9::vector,$10)
+      ON CONFLICT(memory_id,trigger_concrete,trigger_abstract,trigger_meta) DO NOTHING`,
+      [memoryId, identity.ownerId, identity.botId, draft.trigger.concrete, draft.trigger.abstract, draft.trigger.meta,
+        vectorLiteral(embeddings.concrete), vectorLiteral(embeddings.abstract), vectorLiteral(embeddings.meta), draft.sourceGenerationId]);
   }
 
   async apply(identity: Identity, operation: any, embeddings?: Record<MemoryLevel, number[]>): Promise<void> {
@@ -262,6 +290,13 @@ export class PostgresRepository implements MemoryRepository {
       if (!operation.memory || !embeddings) throw new Error(`${operation.operation} requires a replacement memory`);
       const target = await client.query("SELECT id FROM memories WHERE id=$1 AND status='active' FOR UPDATE", [operation.targetId]);
       if (target.rowCount !== 1) throw new Error("Replacement target is not an active memory in this Bot namespace");
+      if (operation.operation === "merge") {
+        await this.insertTriggerSet(client, identity, operation.targetId, operation.memory, embeddings);
+        await client.query(`UPDATE memories SET body_concrete=$2,body_abstract=$3,body_meta=$4,
+          importance=GREATEST(importance,$5),merge_count=merge_count+1,updated_at=now() WHERE id=$1`,
+          [operation.targetId, operation.memory.body.concrete, operation.memory.body.abstract, operation.memory.body.meta, operation.memory.importance]);
+        return;
+      }
       const replacementId = await this.insertMemory(client, identity, operation.memory, embeddings);
       await client.query("UPDATE memories SET status='superseded',superseded_by=$2,updated_at=now() WHERE id=$1", [operation.targetId, replacementId]);
     });
@@ -285,7 +320,7 @@ export class PostgresRepository implements MemoryRepository {
   async recentMemorySummary(identity: Identity, limit: number): Promise<string> {
     const rows = await this.inspect(identity, limit);
     return rows.map((row) => JSON.stringify({ id: row.id, scopeType: row.scope_type, scopeKey: row.scope_key,
-      trigger: { concrete: row.trigger_concrete, abstract: row.trigger_abstract, meta: row.trigger_meta },
+      triggerSets: row.trigger_sets, mergeCount: row.merge_count,
       body: { concrete: row.body_concrete, abstract: row.body_abstract, meta: row.body_meta },
       importance: row.importance, usefulness: row.usefulness })).join("\n");
   }
@@ -316,9 +351,15 @@ export class PostgresRepository implements MemoryRepository {
   }
 
   async inspect(identity: Identity, limit: number): Promise<Array<Record<string, unknown>>> {
-    return this.scoped(identity, async (client) => (await client.query(`SELECT id,scope_type,scope_key,trigger_concrete,trigger_abstract,trigger_meta,
-      body_concrete,body_abstract,body_meta,importance,usefulness,exposure_count,updated_at
-      FROM memories WHERE status='active' ORDER BY updated_at DESC LIMIT $1`, [limit])).rows);
+    return this.scoped(identity, async (client) => (await client.query(`SELECT m.id,m.scope_type,m.scope_key,
+      m.trigger_concrete,m.trigger_abstract,m.trigger_meta,m.body_concrete,m.body_abstract,m.body_meta,
+      m.importance,m.usefulness,m.exposure_count,m.merge_count,m.updated_at,
+      count(t.id)::int AS trigger_count,
+      COALESCE(jsonb_agg(jsonb_build_object('id',t.id,'concrete',t.trigger_concrete,'abstract',t.trigger_abstract,
+        'meta',t.trigger_meta,'sourceGenerationId',t.source_generation_id,'createdAt',t.created_at)
+        ORDER BY t.created_at) FILTER (WHERE t.id IS NOT NULL),'[]'::jsonb) AS trigger_sets
+      FROM memories m LEFT JOIN memory_trigger_sets t ON t.memory_id=m.id WHERE m.status='active'
+      GROUP BY m.id ORDER BY m.updated_at DESC LIMIT $1`, [limit])).rows);
   }
 
   async timeline(identity: Identity, limit: number): Promise<TimelineEntry[]> {
@@ -335,7 +376,8 @@ export class PostgresRepository implements MemoryRepository {
           WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3
         UNION ALL
         SELECT 'memory',created_at,source_generation_id,left(trigger_concrete,500),
-          jsonb_build_object('id',id,'body',left(body_concrete,500),'status',status) FROM memories
+          jsonb_build_object('id',id,'body',left(body_concrete,500),'status',status,'mergeCount',merge_count,
+            'triggerCount',(SELECT count(*) FROM memory_trigger_sets t WHERE t.memory_id=memories.id)) FROM memories
           WHERE owner_id=$1 AND bot_id=$2
       ) timeline ORDER BY created_at DESC LIMIT $4`, [identity.ownerId, identity.botId, identity.conversationId, limit]);
       return result.rows.reverse().map((row: any) => ({ kind: row.kind, createdAt: new Date(row.created_at).toISOString(),
@@ -358,9 +400,10 @@ export class PostgresRepository implements MemoryRepository {
 
   async indexRecords(identity: Identity): Promise<IndexRecord[]> {
     return this.scoped(identity, async (client) => {
-      const result = await client.query(`SELECT id,owner_id,bot_id,scope_type,scope_key,
-        embedding_concrete::text AS concrete,embedding_abstract::text AS abstract,embedding_meta::text AS meta
-        FROM memories WHERE owner_id=$1 AND bot_id=$2 AND status='active'`, [identity.ownerId, identity.botId]);
+      const result = await client.query(`SELECT m.id,m.owner_id,m.bot_id,m.scope_type,m.scope_key,
+        t.embedding_concrete::text AS concrete,t.embedding_abstract::text AS abstract,t.embedding_meta::text AS meta
+        FROM memories m JOIN memory_trigger_sets t ON t.memory_id=m.id
+        WHERE m.owner_id=$1 AND m.bot_id=$2 AND m.status='active'`, [identity.ownerId, identity.botId]);
       return result.rows.flatMap((row: any) => (["concrete", "abstract", "meta"] as const).map((level) => ({
         memoryId: row.id, ownerId: row.owner_id, botId: row.bot_id, scopeType: row.scope_type, scopeKey: row.scope_key, level, vector: parseVector(row[level]),
       })));
@@ -374,8 +417,18 @@ export class PostgresRepository implements MemoryRepository {
   }
 
   async updateTriggerEmbeddings(id: string, embeddings: Record<MemoryLevel, number[]>): Promise<void> {
-    await this.pool.query(`UPDATE memories SET embedding_concrete=$2::vector,embedding_abstract=$3::vector,embedding_meta=$4::vector,
-      embedding_version=2,updated_at=now() WHERE id=$1`, [id, vectorLiteral(embeddings.concrete), vectorLiteral(embeddings.abstract), vectorLiteral(embeddings.meta)]);
+    const values = [id, vectorLiteral(embeddings.concrete), vectorLiteral(embeddings.abstract), vectorLiteral(embeddings.meta)];
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`UPDATE memories SET embedding_concrete=$2::vector,embedding_abstract=$3::vector,embedding_meta=$4::vector,
+        embedding_version=2,updated_at=now() WHERE id=$1`, values);
+      await client.query(`UPDATE memory_trigger_sets t SET embedding_concrete=$2::vector,embedding_abstract=$3::vector,embedding_meta=$4::vector
+        FROM memories m WHERE t.memory_id=m.id AND m.id=$1 AND t.trigger_concrete=m.trigger_concrete
+        AND t.trigger_abstract=m.trigger_abstract AND t.trigger_meta=m.trigger_meta`, values);
+      await client.query("COMMIT");
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
   }
 
   async recordEvent(identity: Identity, eventType: "recall" | "remember" | "note" | "reflect" | "rate" | "forget" | "brainstorm", generationId?: string, details: Record<string, unknown> = {}): Promise<void> {

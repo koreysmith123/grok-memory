@@ -95,6 +95,13 @@ path to a faster backend without putting concurrent writes or namespace isolatio
 9. `afterAgentResponse` durably records the completed turn; optional asynchronous
    consolidation can run when the standalone Grok Build CLI is authenticated.
 
+A durable thought is one canonical lesson with one or more three-level trigger sets.
+When the active Bot or background consolidation recognizes the same lesson arising from
+another situation, it merges into the existing memory ID: the new concrete, abstract,
+and meta triggers are retained as another searchable path, the lesson may be refined,
+and the rediscovery count increases. Searches evaluate every trigger path but return the
+parent thought only once. Exact duplicate trigger sets do not consume another row.
+
 While a chapter is unfolding, the active Bot can leave lightweight `memory_note`
 breadcrumbs. At a resolution point it calls `memory_reflect`; RecallSmith atomically
 collects completed chapter turns, notes, the active-context summary, and full existing
@@ -135,6 +142,10 @@ stdio manifest from `.grok-memory/grokbot-mcp.json`.
 On upgrades, the installer automatically re-embeds existing memories with trigger-only
 document vectors. Lesson bodies remain in full-text ranking and surfaced context but no
 longer dilute the primary situation-matching vector.
+
+The schema-3 upgrade is additive. It creates the trigger-set table and backfills every
+existing memory as its first trigger set without changing memory IDs, Bot IDs, grants,
+profiles, or the database. It never deletes or recreates Bots or the memory database.
 
 The GrokBot performing the installation automatically finishes the native
 `AddMcpServer` registration, both skill installations, profile activation, disposable canary, and health

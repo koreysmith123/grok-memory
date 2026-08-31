@@ -21,7 +21,7 @@ is true.
    `memory_bind_bot`, `memory_inspect`, `memory_timeline`, `memory_compliance`,
    `memory_forget`, and `memory_health`. Confirm `memory_remember` exposes all six distinct fields: `bodyConcrete`,
    `bodyAbstract`, `bodyMeta`, `triggerConcrete`, `triggerAbstract`, and `triggerMeta`.
-2. Call `memory_health`. Require `ok=true`, `degraded=false`, and `schema_version>=2`.
+2. Call `memory_health`. Require `ok=true`, `degraded=false`, and `schema_version>=3`.
 3. Determine your own stable agent ID from your profile or `ListAgents`. Select only your
    individual Bot identity—never a group, channel, or another Bot.
 4. Read `skills/recallsmith/SKILL.md` and
@@ -43,13 +43,17 @@ is true.
 2. Call `memory_recall` with three distinct, nonverbatim concrete, abstract, and meta search
    lanes. Require the canary memory ID to return with `degraded=false`.
 3. Call `memory_inspect` for that exact ID. Require your own Bot scope and all six fields.
-4. Call `memory_forget` for that exact ID with its exact confirmation token
+4. Call `memory_remember` again with a distinct second three-level
+   trigger set and `mergeIntoMemoryId` equal to the canary ID. Require the returned ID to
+   remain unchanged, `trigger_count=2`, `merge_count=1`, and recall through both trigger
+   paths to return the parent once.
+5. Call `memory_forget` for that exact ID with its exact confirmation token
    `forget:<memoryId>`, then inspect again and require it to be absent. Leave no canary data.
 
 ## Phase 4: completion
 
 All of these must be true: daemon doctor green; MCP registered; all thirteen tools advertised;
-`memory_health` green on schema 2 or newer; six-field schema confirmed; both exact skills installed; only this Bot's profile activated; recall,
+`memory_health` green on schema 3 or newer; six-field plus `mergeIntoMemoryId` schema confirmed; both exact skills installed; only this Bot's profile activated; multi-trigger merge, recall,
 inspect, and exact-delete canary passed; no polling routine created; no canary remains.
 
 Your final response must begin exactly `RECALLSMITH_READY` and include the stable Bot ID,

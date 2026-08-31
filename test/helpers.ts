@@ -31,6 +31,7 @@ export class FakeRepository implements MemoryRepository {
   exposures: SearchHit[] = [];
   notes: Array<{ id: string; content: string }> = [];
   events: Array<{ type: string; generationId?: string; details?: Record<string, unknown> }> = [];
+  operations: any[] = [];
   requeueCalls = 0;
   async binding() { return this.bindingValue; }
   async bind(identity: Identity) { this.bindingValue = { botId: identity.botId, ...(identity.projectId ? { projectId: identity.projectId } : {}) }; }
@@ -43,7 +44,7 @@ export class FakeRepository implements MemoryRepository {
   async search(_identity: Identity, level: MemoryLevel) { return this.hits[level]; }
   async recordExposures(_identity: Identity, _generation: string, hits: SearchHit[]) { this.exposures.push(...hits); }
   async save(_identity: Identity, draft: MemoryDraft, _embeddings?: Record<MemoryLevel, number[]>) { this.saved.push(draft); return crypto.randomUUID(); }
-  async apply(identity: Identity, operation: any, embeddings?: Record<MemoryLevel, number[]>) { if (operation.operation === "create") await this.save(identity, operation.memory, embeddings!); }
+  async apply(identity: Identity, operation: any, embeddings?: Record<MemoryLevel, number[]>) { this.operations.push(operation); if (operation.operation === "create") await this.save(identity, operation.memory, embeddings!); }
   async claimJob(): Promise<ClaimedJob | undefined> { return undefined; }
   async finishJob() {}
   async requeueFailedJobs() { this.requeueCalls += 1; return 0; }
