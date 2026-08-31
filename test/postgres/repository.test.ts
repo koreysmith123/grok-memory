@@ -31,8 +31,25 @@ test("DB-002 DB-005 DB-006 DB-008 migrations, vector/FTS search, and health", { 
     const hits = await repo.search(bot, "concrete", "fresh oranges", vector(0), 5);
     assert.ok(hits.some((item) => item.trigger.includes("oranges")));
     assert.ok(hits[0]!.vectorScore > .99); assert.ok(hits[0]!.lexicalScore >= 0);
-    const health = await repo.health(); assert.equal(health.ok, true); assert.equal(health.schema_version, 1); assert.ok(health.pgvector_version);
+    assert.match(hits[0]!.chain.trigger.abstract, /choosing oranges/); assert.match(hits[0]!.chain.body.meta, /past outcomes/);
+    const health = await repo.health(); assert.equal(health.ok, true); assert.equal(health.schema_version, 2); assert.ok(health.pgvector_version);
     assert.ok("active_workers" in health); assert.ok("oldest_worker_lease" in health); assert.ok("last_completed_job" in health);
+  } finally { await admin.close(); await repo.close(); }
+});
+
+test("MEM-015 upgrades existing trigger-plus-body vectors to trigger-only version 2", { skip: !enabled }, async () => {
+  const repo = new PostgresRepository(databaseUrl); const admin = new PostgresRepository(adminDatabaseUrl);
+  try {
+    const bot = identity(`reembed-${crypto.randomUUID()}`, "reembed-conversation");
+    const memoryId = await repo.save(bot, draft(bot.botId, "bot", bot.botId, `reembed-${crypto.randomUUID()}`), embeddings(7));
+    await admin.pool.query("UPDATE memories SET embedding_version=1 WHERE id=$1", [memoryId]);
+    // The shared integration database may contain older version-1 rows from
+    // previous runs, so inspect the full practical backfill batch here.
+    const pending = await admin.pendingTriggerEmbeddings(10_000); const target = pending.find((memory) => memory.id === memoryId)!;
+    assert.match(target.trigger.concrete, /choosing oranges/);
+    await admin.updateTriggerEmbeddings(memoryId, embeddings(8));
+    const row = (await admin.pool.query("SELECT embedding_version,embedding_concrete::text AS vector FROM memories WHERE id=$1", [memoryId])).rows[0];
+    assert.equal(row.embedding_version, 2); assert.match(row.vector, /^\[0,0,0,0,0,0,0,0,1,/);
   } finally { await admin.close(); await repo.close(); }
 });
 
@@ -82,6 +99,31 @@ test("MEM-001 MEM-012 constraints and transcript retention", { skip: !enabled },
     const beforeMemories = (await repo.inspect(bot, 100)).length;
     assert.ok(await repo.pruneTurns(30) >= 1); assert.equal((await repo.inspect(bot, 100)).length, beforeMemories);
   } finally { await admin.close(); await repo.close(); }
+});
+
+test("MEM-016 MEM-017 QUA-009 notes close into an isolated multi-turn chapter and readable timeline", { skip: !enabled }, async () => {
+  const repo = new PostgresRepository(databaseUrl);
+  try {
+    const suffix = crypto.randomUUID(); const bot = identity(`chapter-${suffix}`, `conversation-${suffix}`);
+    await repo.completeTurnAndEnqueue({ identity: bot, generationId: `turn-${suffix}`, userText: "Earlier user decision context", assistantText: "Earlier assistant analysis" });
+    await repo.addNote(bot, "The fallback boundary became the decisive observation.");
+    const reflected = await repo.enqueueReflection(bot, "The chapter compares authoritative storage with accelerated projections.", "PostgreSQL stays canonical and the centroid index remains replaceable.");
+    assert.equal(reflected.turnCount, 1); assert.equal(reflected.noteCount, 1);
+    let chapterJob;
+    for (let index = 0; index < 500; index++) {
+      const candidate = await repo.claimJob(`chapter-worker-${suffix}`); if (!candidate) break;
+      if (candidate.payload.generationId === reflected.generationId) { chapterJob = candidate; break; }
+      await repo.finishJob(candidate.id, true);
+    }
+    assert.equal(chapterJob?.payload.chapter?.turns[0]?.userText, "Earlier user decision context");
+    assert.equal(chapterJob?.payload.chapter?.notes[0]?.content, "The fallback boundary became the decisive observation.");
+    await repo.finishJob(chapterJob!.id, true);
+    const timeline = await repo.timeline(bot, 50);
+    assert.ok(timeline.some((entry) => entry.kind === "note")); assert.ok(timeline.some((entry) => entry.summary === "reflect"));
+    const beforeRecall = await repo.compliance(bot); assert.equal(beforeRecall.completedTurns, 1); assert.equal(beforeRecall.turnsWithoutExactObservedRecall, 1);
+    await repo.recordEvent(bot, "recall", `turn-${suffix}`, { source: "test" });
+    const afterRecall = await repo.compliance(bot); assert.equal(afterRecall.exactlyPairedTurns, 1); assert.equal(afterRecall.turnsWithoutExactObservedRecall, 0);
+  } finally { await repo.close(); }
 });
 
 test("DB-004 ISO-002 32 simultaneous Bot read/write workloads remain isolated", { skip: !enabled, timeout: 30_000 }, async () => {
@@ -185,5 +227,27 @@ test("DB-003 EMU-007 failed jobs retry with backoff and become terminal after th
     assert.deepEqual({ state: row.state, attempts: row.attempts, lastError: row.last_error, lockedAt: row.locked_at, lockedBy: row.locked_by },
       { state: "failed", attempts: 3, lastError: "failure-3", lockedAt: null, lockedBy: null });
     assert.equal(await repo.claimJob("retry-worker-final"), undefined);
+  } finally { await admin.close(); await repo.close(); }
+});
+
+test("MEM-018 authentication failures can be requeued after credentials appear", { skip: !enabled }, async () => {
+  const repo = new PostgresRepository(databaseUrl); const admin = new PostgresRepository(adminDatabaseUrl);
+  try {
+    const suffix = crypto.randomUUID(); const bot = identity(`auth-replay-${suffix}`, "auth-replay-conversation");
+    await repo.completeTurnAndEnqueue({ identity: bot, generationId: `auth-replay-${suffix}`, userText: "u", assistantText: "a" });
+    let targetId = "";
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      let job;
+      for (let index = 0; index < 500; index++) {
+        const candidate = await repo.claimJob(`auth-worker-${attempt}`); if (!candidate) break;
+        if (candidate.botId === bot.botId) { job = candidate; break; }
+        await repo.finishJob(candidate.id, true);
+      }
+      targetId = job!.id; await repo.finishJob(targetId, false, "Grok Build authentication required: please sign in");
+      if (attempt < 3) await admin.pool.query("UPDATE jobs SET available_at=now() WHERE id=$1", [targetId]);
+    }
+    assert.ok(await repo.requeueFailedJobs(100) >= 1);
+    const row = (await admin.pool.query("SELECT state,attempts,last_error FROM jobs WHERE id=$1", [targetId])).rows[0];
+    assert.deepEqual(row, { state: "queued", attempts: 0, last_error: null });
   } finally { await admin.close(); await repo.close(); }
 });

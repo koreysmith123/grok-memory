@@ -29,11 +29,16 @@ export class FakeRepository implements MemoryRepository {
   hits: Record<MemoryLevel, SearchHit[]> = { concrete: [], abstract: [], meta: [] };
   saved: MemoryDraft[] = [];
   exposures: SearchHit[] = [];
+  notes: Array<{ id: string; content: string }> = [];
+  events: Array<{ type: string; generationId?: string; details?: Record<string, unknown> }> = [];
+  requeueCalls = 0;
   async binding() { return this.bindingValue; }
   async bind(identity: Identity) { this.bindingValue = { botId: identity.botId, ...(identity.projectId ? { projectId: identity.projectId } : {}) }; }
   async recordPrompt(_identity: Identity, generationId: string, prompt: string) { this.prompts.set(generationId, prompt); }
   async promptForGeneration(_identity: Identity, generationId: string) { return this.prompts.get(generationId) ?? ""; }
   async recentTurns(_identity: Identity, limit: number) { return this.turns.slice(-limit).map((turn) => ({ userText: turn.userText, assistantText: turn.assistantText })); }
+  async addNote(_identity: Identity, content: string) { const id = crypto.randomUUID(); this.notes.push({ id, content }); return id; }
+  async enqueueReflection(_identity: Identity, _summary: string, _resolution: string) { return { generationId: `reflection:${crypto.randomUUID()}`, turnCount: this.turns.length, noteCount: this.notes.length }; }
   async completeTurnAndEnqueue(turn: TurnRecord) { if (!this.turns.some((item) => item.generationId === turn.generationId)) this.turns.push(turn); }
   async search(_identity: Identity, level: MemoryLevel) { return this.hits[level]; }
   async recordExposures(_identity: Identity, _generation: string, hits: SearchHit[]) { this.exposures.push(...hits); }
@@ -41,19 +46,29 @@ export class FakeRepository implements MemoryRepository {
   async apply(identity: Identity, operation: any, embeddings?: Record<MemoryLevel, number[]>) { if (operation.operation === "create") await this.save(identity, operation.memory, embeddings!); }
   async claimJob(): Promise<ClaimedJob | undefined> { return undefined; }
   async finishJob() {}
+  async requeueFailedJobs() { this.requeueCalls += 1; return 0; }
   async recentMemorySummary() { return ""; }
   async rate() {}
   async forget() { return true; }
   async grant() {}
   async pruneTurns() { return 0; }
   async inspect() { return []; }
+  async timeline() { return []; }
+  async compliance() { return { completedTurns: this.turns.length, observedRecallCalls: this.events.filter((event) => event.type === "recall").length, exactlyPairedTurns: 0, turnsWithoutExactObservedRecall: this.turns.length }; }
+  async indexRecords() { return []; }
+  async pendingTriggerEmbeddings() { return []; }
+  async updateTriggerEmbeddings() {}
+  async recordEvent(_identity: Identity, type: any, generationId?: string, details?: Record<string, unknown>) { this.events.push({ type, ...(generationId ? { generationId } : {}), ...(details ? { details } : {}) }); }
   async health() { return { ok: true, pgvector_version: "test", schema_version: 1, queue_depth: 0 }; }
   async close() {}
 }
 
 export function hit(id: string, level: MemoryLevel, score: number, overrides: Partial<SearchHit> = {}): SearchHit {
-  return { id, level, trigger: `trigger ${id}`, body: `lesson ${id}`, scopeType: "bot", scopeKey: "bot-a", vectorScore: score,
-    lexicalScore: 0.2, importance: 70, usefulness: 0.5, updatedAt: new Date(), finalScore: score, ...overrides };
+  const trigger = { concrete: `concrete trigger ${id}`, abstract: `abstract trigger ${id}`, meta: `meta trigger ${id}` };
+  const body = { concrete: `concrete lesson ${id}`, abstract: `abstract lesson ${id}`, meta: `meta lesson ${id}` };
+  return { id, level, trigger: trigger[level], body: body[level], scopeType: "bot", scopeKey: "bot-a", vectorScore: score,
+    lexicalScore: 0.2, importance: 70, usefulness: 0.5, updatedAt: new Date(), finalScore: score,
+    chain: { id, trigger, body, importance: 70, usefulness: 0.5, scopeType: "bot", scopeKey: "bot-a", updatedAt: new Date() }, ...overrides };
 }
 
 export async function fakeDaemon(handler?: (path: string, body: any) => unknown | Promise<unknown>) {

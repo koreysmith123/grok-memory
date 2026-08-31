@@ -24,7 +24,9 @@ try {
   await run("bash", ["./install.sh"]); await run("bash", ["./install.sh"]);
   const hooks = JSON.parse(await readFile(join(home, ".cursor", "hooks.json"), "utf8"));
   if (hooks.hooks.beforeSubmitPrompt.filter(item => item.command === "sentinel-hook").length !== 1) throw new Error("installer altered unrelated hook");
-  if (hooks.hooks.beforeSubmitPrompt.filter(item => String(item.command).includes(checkout)).length !== 1) throw new Error("installer was not idempotent");
+  // macOS may expose the same temporary directory through /var and
+  // /private/var, so identify the owned hook by its stable command suffix.
+  if (hooks.hooks.beforeSubmitPrompt.filter(item => /dist\/cli\.js hook before$/.test(String(item.command))).length !== 1) throw new Error(`installer was not idempotent: ${JSON.stringify(hooks.hooks.beforeSubmitPrompt)}`);
   const doctor = await run("bash", ["-lc", "set -a; . ./.env; set +a; node dist/cli.js doctor --json"]);
   const status = JSON.parse(doctor.stdout); if (!status.grokBuild?.ok || !status.embedding?.cachePresent || !status.daemon?.ok) throw new Error(`doctor failed: ${doctor.stdout}`);
   await run("bash", ["./uninstall.sh"]);

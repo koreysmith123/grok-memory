@@ -16,9 +16,12 @@ is true.
 
 1. Read `.grok-memory/grokbot-mcp.json`. Invoke `AddMcpServer` with its exact stdio command
    under the stable name `user-grok-memory`. Re-register it if GrokBot cached an older
-   schema. Confirm `memory_remember` exposes all six distinct fields: `bodyConcrete`,
+   schema. Confirm all thirteen tools are advertised: `memory_recall`, `memory_search`,
+   `memory_brainstorm`, `memory_note`, `memory_reflect`, `memory_remember`, `memory_rate`,
+   `memory_bind_bot`, `memory_inspect`, `memory_timeline`, `memory_compliance`,
+   `memory_forget`, and `memory_health`. Confirm `memory_remember` exposes all six distinct fields: `bodyConcrete`,
    `bodyAbstract`, `bodyMeta`, `triggerConcrete`, `triggerAbstract`, and `triggerMeta`.
-2. Call `memory_health`. Require `ok=true` and `degraded=false`.
+2. Call `memory_health`. Require `ok=true`, `degraded=false`, and `schema_version>=2`.
 3. Determine your own stable agent ID from your profile or `ListAgents`. Select only your
    individual Bot identity—never a group, channel, or another Bot.
 4. Read `skills/recallsmith/SKILL.md` and
@@ -45,12 +48,12 @@ is true.
 
 ## Phase 4: completion
 
-All of these must be true: daemon doctor green; MCP registered; `memory_health` green;
-six-field schema confirmed; both exact skills installed; only this Bot's profile activated; recall,
+All of these must be true: daemon doctor green; MCP registered; all thirteen tools advertised;
+`memory_health` green on schema 2 or newer; six-field schema confirmed; both exact skills installed; only this Bot's profile activated; recall,
 inspect, and exact-delete canary passed; no polling routine created; no canary remains.
 
 Your final response must begin exactly `RECALLSMITH_READY` and include the stable Bot ID,
-health result, six-field schema confirmation, all canary results, and measured recall latency.
+health result, thirteen-tool and six-field schema confirmation, all canary results, and measured recall latency.
 If an unrecoverable permission failure remains after autonomous self-repair, begin exactly
 `GROK_MEMORY_BLOCKED` and provide concrete evidence. Do not ask an open question and do not
 claim partial success.

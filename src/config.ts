@@ -14,6 +14,7 @@ export interface Config {
   dataDir: string;
   modelCacheDir: string;
   fixtureDir?: string;
+  searchBackend: "pgvector" | "centroid-shadow";
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {
@@ -38,6 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     retentionDays: positiveInteger(env.GROK_MEMORY_TRANSCRIPT_RETENTION_DAYS, 30),
     dataDir,
     modelCacheDir: resolve(env.GROK_MEMORY_MODEL_CACHE ?? join(dataDir, "models")),
+    searchBackend: env.GROK_MEMORY_SEARCH_BACKEND === "centroid-shadow" ? "centroid-shadow" : "pgvector",
     ...(fixtureDir ? { fixtureDir: resolve(fixtureDir) } : {}),
   };
 }

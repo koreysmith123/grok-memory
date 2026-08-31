@@ -18,7 +18,7 @@ for (const suite of ["deterministic", "postgres", "install", "e2e", "live", "gro
 const rows = ids.map(id => {
   const requiredSuites = ["deterministic", "postgres", "live"].filter(suite => sources[suite].includes(id));
   if (new Set(["INS-001", "INS-002", "INS-003", "INS-004", "INS-006", "INS-007", "INS-009", "INS-010", "INS-011"]).has(id)) requiredSuites.push("install");
-  if (new Set(["MEM-002", "MEM-003", "MEM-007", "MEM-008", "MEM-010", "ISO-002", "HOK-001", "HOK-002", "HOK-004", "EMU-001", "EMU-003", "EMU-005", "EMU-006"]).has(id)) requiredSuites.push("e2e");
+  if (new Set(["MEM-002", "MEM-003", "MEM-007", "MEM-008", "MEM-010", "ISO-002", "HOK-001", "HOK-002", "HOK-004", "EMU-001", "EMU-003", "EMU-005", "EMU-006", "BLD-005"]).has(id)) requiredSuites.push("e2e");
   if (new Set(["LAT-003", "LAT-004"]).has(id)) requiredSuites.push("e2e");
   if (id.startsWith("BOT-")) requiredSuites.push("grokbot");
   if (id === "QUA-001") requiredSuites.push("postgres", "install", "e2e", "live");

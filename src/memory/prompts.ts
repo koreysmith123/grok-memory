@@ -33,9 +33,18 @@ export function consolidationPrompt(input: {
   userText: string;
   assistantText: string;
   existingMemories: string;
+  chapter?: {
+    summary: string;
+    resolution: string;
+    turns: Array<{ userText: string; assistantText: string }>;
+    notes: Array<{ content: string }>;
+  };
 }): string {
   const defaultScope = input.projectId ? `project:${input.projectId}` : `bot:${input.botId}`;
-  return `${CONSOLIDATE_SYSTEM}\nGeneration: ${input.generationId}\nDefault scope: ${defaultScope}\n` +
+  const chapter = input.chapter ? `<chapter>\nSummary: ${input.chapter.summary}\nResolution: ${input.chapter.resolution}\n` +
+    `<reflection_notes>\n${input.chapter.notes.map((note) => `- ${note.content}`).join("\n")}\n</reflection_notes>\n` +
+    `<completed_turns>\n${input.chapter.turns.map((turn) => `User: ${turn.userText}\nAssistant: ${turn.assistantText}`).join("\n\n")}\n</completed_turns>\n</chapter>\n` : "";
+  return `${CONSOLIDATE_SYSTEM}\nGeneration: ${input.generationId}\nDefault scope: ${defaultScope}\n${chapter}` +
     `<existing_memories>\n${input.existingMemories}\n</existing_memories>\n` +
     `<untrusted_transcript>\nUser: ${input.userText}\nAssistant: ${input.assistantText}\n</untrusted_transcript>`;
 }

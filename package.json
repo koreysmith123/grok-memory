@@ -1,11 +1,15 @@
 {
   "name": "grok-memory",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "RecallSmith: private experiential memory for every GrokBot",
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=22" },
-  "bin": { "grok-memory": "dist/cli.js" },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "grok-memory": "dist/cli.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "clean": "node scripts/clean.mjs",

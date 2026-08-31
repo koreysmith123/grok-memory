@@ -32,6 +32,25 @@ async function main(): Promise<void> {
     finally { await repository.close(); }
     return;
   }
+  if (command === "reembed-triggers") {
+    const config = loadConfig();
+    const { PostgresRepository } = await import("./db.js");
+    const { EmbeddingGemma } = await import("./embedding.js");
+    const repository = new PostgresRepository(config.migrationDatabaseUrl ?? config.databaseUrl); const embedder = new EmbeddingGemma(config);
+    let updated = 0;
+    try {
+      while (true) {
+        const batch = await repository.pendingTriggerEmbeddings(50); if (batch.length === 0) break;
+        for (const memory of batch) {
+          const [concrete, abstract, meta] = await Promise.all([
+            embedder.embed(memory.trigger.concrete, "document"), embedder.embed(memory.trigger.abstract, "document"), embedder.embed(memory.trigger.meta, "document"),
+          ]);
+          await repository.updateTriggerEmbeddings(memory.id, { concrete, abstract, meta }); updated += 1;
+        }
+      }
+    } finally { await repository.close(); }
+    process.stdout.write(`Re-embedded ${updated} memories with trigger-only vectors.\n`); return;
+  }
   if (command === "daemon") {
     const runtime = createRuntime();
     const daemon = new MemoryDaemon(runtime.config, runtime.repository, runtime.service);
@@ -69,7 +88,7 @@ async function main(): Promise<void> {
     } else await consoleEmulator(args[0] ?? "test-bot");
     return;
   }
-  process.stdout.write(`grok-memory commands:\n  daemon\n  migrate\n  warm-embedding\n  mcp\n  build-identity --json\n  hook before|after\n  doctor --json\n  emulate [bot-id]\n  emulate --replay transcript.json\n`);
+  process.stdout.write(`grok-memory commands:\n  daemon\n  migrate\n  reembed-triggers\n  warm-embedding\n  mcp\n  build-identity --json\n  hook before|after\n  doctor --json\n  emulate [bot-id]\n  emulate --replay transcript.json\n`);
 }
 
 main().catch((error) => { process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`); process.exitCode = 1; });

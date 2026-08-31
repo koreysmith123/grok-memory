@@ -17,6 +17,17 @@ export interface MemoryDraft {
   sourceGenerationId: string;
 }
 
+export interface MemoryChain {
+  id: string;
+  trigger: ThreeLevels;
+  body: ThreeLevels;
+  importance: number;
+  usefulness: number;
+  scopeType: ScopeType;
+  scopeKey: string;
+  updatedAt: Date;
+}
+
 export interface Identity {
   ownerId: string;
   botId: string;
@@ -38,6 +49,7 @@ export interface SearchHit {
   usefulness: number;
   updatedAt: Date;
   finalScore: number;
+  chain: MemoryChain;
 }
 
 export interface HookEvent {
@@ -66,6 +78,27 @@ export interface TurnRecord {
   userText: string;
   assistantText: string;
   model?: string;
+  chapter?: {
+    summary: string;
+    resolution: string;
+    turns: Array<{ userText: string; assistantText: string }>;
+    notes: Array<{ id: string; content: string; createdAt: string }>;
+  };
+}
+
+export interface BrainstormThought {
+  thought: string;
+  concrete: string;
+  abstract: string;
+  meta: string;
+}
+
+export interface TimelineEntry {
+  kind: "turn" | "note" | "event" | "memory";
+  createdAt: string;
+  generationId?: string;
+  summary: string;
+  details?: Record<string, unknown>;
 }
 
 export interface Logger {

@@ -55,7 +55,7 @@ test("EMU-003 reconstructed additional-context carrier sanitizes and enforces 10
   assert.equal(renderAdditionalContext("x".repeat(10_001)), undefined);
 });
 
-test("MCP-001 MCP-002 MCP-003 MCP-004 MCP-006 MCP-007 production MCP server initializes, lists, calls, and validates", async () => {
+test("MCP-001 MCP-002 MCP-003 MCP-004 MCP-006 MCP-007 MCP-008 production MCP server initializes, lists, calls, and validates", async () => {
   const daemon = await fakeDaemon((path) => path === "/v1/health" ? { ok: true, schema_version: 1 } : { ok: true });
   const transport = new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", cli, "mcp"], cwd: root,
     env: { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === "string")), GROK_MEMORY_DAEMON_URL: daemon.url }, stderr: "pipe" });
@@ -63,7 +63,7 @@ test("MCP-001 MCP-002 MCP-003 MCP-004 MCP-006 MCP-007 production MCP server init
   try {
     await client.connect(transport);
     const tools = await client.listTools();
-    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ["memory_bind_bot", "memory_forget", "memory_health", "memory_inspect", "memory_rate", "memory_recall", "memory_remember", "memory_search"]);
+    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ["memory_bind_bot", "memory_brainstorm", "memory_compliance", "memory_forget", "memory_health", "memory_inspect", "memory_note", "memory_rate", "memory_recall", "memory_reflect", "memory_remember", "memory_search", "memory_timeline"]);
     const health = await client.callTool({ name: "memory_health", arguments: {} });
     assert.equal((health.structuredContent as any).ok, true);
     const recallTool = tools.tools.find((tool) => tool.name === "memory_recall")!;
@@ -85,6 +85,17 @@ test("MCP-001 MCP-002 MCP-003 MCP-004 MCP-006 MCP-007 production MCP server init
     const recall = await client.callTool({ name: "memory_recall", arguments: { botId: "bot-a", conversationId: "c", currentContext: "debugging memory latency", concrete: "GrokBot memory recall is too slow", abstract: "reducing latency in an agent context system", meta: "reuse an existing model turn instead of nesting model calls" } });
     assert.equal(recall.isError, undefined);
     assert.equal(daemon.requests.at(-1)?.path, "/v1/tools/recall");
+    const identity = { botId: "bot-a", conversationId: "c" };
+    await client.callTool({ name: "memory_note", arguments: { ...identity, content: "The storage boundary is becoming the important design hinge." } });
+    assert.equal(daemon.requests.at(-1)?.path, "/v1/tools/note");
+    await client.callTool({ name: "memory_reflect", arguments: { ...identity, summary: "The chapter compared two storage boundaries and tested their consequences.", resolution: "PostgreSQL remains canonical while an optional index accelerates reads." } });
+    assert.equal(daemon.requests.at(-1)?.path, "/v1/tools/reflect");
+    await client.callTool({ name: "memory_brainstorm", arguments: { ...identity, thoughts: [{ thought: "I keep circling back to the index boundary.", concrete: "RecallSmith is deciding where its optional index belongs.", abstract: "A system is separating authoritative writes from accelerated reads.", meta: "A durable source of truth can coexist with a replaceable projection." }] } });
+    assert.equal(daemon.requests.at(-1)?.path, "/v1/tools/brainstorm");
+    await client.callTool({ name: "memory_timeline", arguments: { ...identity, limit: 20 } });
+    assert.equal(daemon.requests.at(-1)?.path, "/v1/tools/timeline");
+    await client.callTool({ name: "memory_compliance", arguments: identity });
+    assert.equal(daemon.requests.at(-1)?.path, "/v1/tools/compliance");
   } finally { await client.close(); await daemon.close(); }
 });
 

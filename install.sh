@@ -47,6 +47,7 @@ SQL
 fi
 node dist/cli.js migrate
 node dist/cli.js warm-embedding
+node dist/cli.js reembed-triggers
 node scripts/merge-config.mjs "$INSTALL_DIR"
 node scripts/install-grok-build-assets.mjs "$INSTALL_DIR"
 node dist/cli.js build-identity --json >/dev/null

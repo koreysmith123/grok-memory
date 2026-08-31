@@ -14,6 +14,7 @@ test("INS-001 QUA-001 one-command package and full validation pipeline are prese
   assert.match(packageJson.scripts["validate:deterministic"], /typecheck.*lint.*test.*build.*audit/);
   assert.match(packageJson.scripts.validate, /deterministic.*postgres.*install.*e2e.*live.*report/);
   assert.match(await readFile(resolve(root, "install.sh"), "utf8"), /npm ci/);
+  assert.match(await readFile(resolve(root, "scripts/bootstrap-node.sh"), "utf8"), /return 0 2>\/dev\/null \|\| exit 0/);
 });
 
 test("INS-009 INS-010 INS-011 GrokBot VM bootstrap and MCP handoff are explicit", async () => {
@@ -38,6 +39,7 @@ test("BOT-001 BOT-005 BOT-010 original NeoSmith loop and idempotent enrollment a
   assert.match(skill, /Preserve your existing profile description byte-for-byte/i);
   assert.match(skill, /user never needs to name that skill/i); assert.match(skill, /create, spawn, hire, duplicate/i);
   assert.match(skill, /Grok Build/); assert.match(skill, /build-identity --json/);
+  assert.match(skill, /never claim.*guarantee/is); assert.match(skill, /memory_note/); assert.match(skill, /memory_reflect/); assert.match(skill, /memory_brainstorm/);
   assert.match(skill, /RECALLSMITH_READY/); assert.doesNotMatch(skill, /every 5 minutes|\*\/5 \* \* \* \*/i);
   const handoff = await readFile(resolve(root, "GROKBOT_INSTALL.md"), "utf8");
   assert.match(handoff, /ListAgents/); assert.match(handoff, /Preserve your own existing profile description byte-for-byte/i);
@@ -55,7 +57,7 @@ test("BOT-011 creator skill bootstraps and verifies a distinct memory-enabled ch
   assert.match(skill, /invoked automatically/i); assert.match(skill, /temporary Build subagent/i);
 });
 
-test("BLD-001 BLD-003 BLD-004 BLD-006 native Grok Build package is explicit", async () => {
+test("BLD-001 BLD-003 BLD-004 BLD-005 BLD-006 native Grok Build package is explicit", async () => {
   const manifest = JSON.parse(await readFile(resolve(root, ".grok-plugin/plugin.json"), "utf8"));
   assert.equal(manifest.name, "recallsmith");
   for (const component of [manifest.skills, manifest.hooks, manifest.mcpServers]) assert.equal(typeof component, "string");
@@ -81,6 +83,7 @@ test("BOT-008 BOT-009 one-message installation contract is strict and self-verif
   ]) assert.match(handoff, new RegExp(phrase, "i"));
   assert.match(installer, /GROK_MEMORY_VM_READY/);
   assert.match(installer, /write-install-result\.mjs/);
+  assert.match(installer, /reembed-triggers/);
   assert.match(installer, /Do not ask the user questions/i);
 });
 
@@ -137,4 +140,14 @@ test("MEM-011 exposure and usefulness paths are wired without blocking recall", 
   assert.match(service, /recordExposures.*catch/);
   const repository = await readFile(resolve(root, "src/db.ts"), "utf8");
   assert.match(repository, /memory_exposures/); assert.match(repository, /usefulness=\(usefulness\*0\.8\)/);
+});
+
+test("MEM-014 MEM-015 MEM-016 MEM-017 MEM-018 MCP-008 QUA-009 restored NeoSmith behaviors are explicit", async () => {
+  const service = await readFile(resolve(root, "src/memory/service.ts"), "utf8");
+  assert.match(service, /Concrete situation/); assert.match(service, /chain\.trigger\.meta/);
+  assert.match(service, /embedder\.embed\(draft\.trigger\[level\], "document"\)/);
+  const mcp = await readFile(resolve(root, "src/mcp.ts"), "utf8");
+  for (const tool of ["memory_note", "memory_reflect", "memory_brainstorm", "memory_timeline", "memory_compliance"]) assert.match(mcp, new RegExp(tool));
+  const migration = await readFile(resolve(root, "migrations/002_reflection_and_observability.sql"), "utf8");
+  for (const feature of ["reflection_notes", "chapter_state", "memory_events", "grok_memory_requeue_failed"]) assert.match(migration, new RegExp(feature));
 });

@@ -3,11 +3,12 @@ import type { ClaimedJob, MemoryRepository } from "../db.js";
 import type { Embedder } from "../embedding.js";
 import type { GrokReasoner } from "../grok-build.js";
 import { resolveIdentity } from "../identity.js";
-import type { HookEvent, Identity, MemoryDraft, MemoryLevel, SearchHit, ThreeLevels, TurnRecord } from "../types.js";
+import type { BrainstormThought, HookEvent, Identity, MemoryDraft, MemoryLevel, SearchHit, ThreeLevels, TurnRecord } from "../types.js";
 import { LEVELS } from "../types.js";
 import { consolidationPrompt, interpretationPrompt } from "./prompts.js";
 import { memoryDraftSchema } from "./schemas.js";
 import { logger } from "../log.js";
+import { NamespaceCentroidIndex, recallAtK } from "../index/centroid.js";
 
 export interface RecallResult {
   additionalContext?: string;
@@ -47,7 +48,11 @@ export function formatContext(hits: SearchHit[], maxChars = 9_500): string | und
   const footer = "\n</memory_context>";
   let body = "";
   for (const hit of hits) {
-    const item = `\n- [memory:${hit.id} lane:${hit.level} scope:${hit.scopeType} relevance:${hit.finalScore.toFixed(3)}]\n  Situation: ${safeText(hit.trigger)}\n  Learned: ${safeText(hit.body)}\n`;
+    const chain = hit.chain;
+    const item = `\n- [memory:${hit.id} matched_lane:${hit.level} scope:${hit.scopeType} relevance:${hit.finalScore.toFixed(3)}]\n` +
+      `  Concrete situation: ${safeText(chain.trigger.concrete)}\n  Concrete lesson: ${safeText(chain.body.concrete)}\n` +
+      `  Abstract situation: ${safeText(chain.trigger.abstract)}\n  Abstract lesson: ${safeText(chain.body.abstract)}\n` +
+      `  Meta situation: ${safeText(chain.trigger.meta)}\n  Meta lesson: ${safeText(chain.body.meta)}\n`;
     if ((header + body + item + footer).length > maxChars) break;
     body += item;
   }
@@ -55,17 +60,42 @@ export function formatContext(hits: SearchHit[], maxChars = 9_500): string | und
 }
 
 async function embeddingsForDraft(embedder: Embedder, draft: MemoryDraft): Promise<Record<MemoryLevel, number[]>> {
-  const [concrete, abstract, meta] = await Promise.all(LEVELS.map((level) => embedder.embed(`${draft.trigger[level]}\n${draft.body[level]}`, "document")));
+  const [concrete, abstract, meta] = await Promise.all(LEVELS.map((level) => embedder.embed(draft.trigger[level], "document")));
   return { concrete: concrete!, abstract: abstract!, meta: meta! };
 }
 
 export class MemoryService {
+  private readonly shadowReady = new Set<string>();
+  private readonly shadowLoads = new Map<string, Promise<void>>();
   constructor(
     private readonly config: Config,
     private readonly repository: MemoryRepository,
     private readonly embedder: Embedder,
     private readonly grok: GrokReasoner,
+    private readonly shadowIndex?: NamespaceCentroidIndex,
   ) {}
+
+  private namespaceKey(identity: Identity): string { return `${identity.ownerId}\u0000${identity.botId}`; }
+
+  private observeShadow(identity: Identity, queryVectors: number[][], lanes: Record<MemoryLevel, SearchHit[]>): void {
+    if (!this.shadowIndex) return;
+    const namespace = this.namespaceKey(identity);
+    if (!this.shadowReady.has(namespace)) {
+      if (!this.shadowLoads.has(namespace)) {
+        const loading = this.repository.indexRecords(identity).then((records) => {
+          this.shadowIndex!.replaceNamespace(identity.ownerId, identity.botId, records); this.shadowReady.add(namespace);
+          logger.log("info", "centroid_shadow_loaded", { ownerId: identity.ownerId, botId: identity.botId, ...this.shadowIndex!.stats() });
+        }).finally(() => this.shadowLoads.delete(namespace));
+        this.shadowLoads.set(namespace, loading); void loading.catch((error) => logger.log("warn", "centroid_shadow_load_failed", { error: String(error) }));
+      }
+      return;
+    }
+    const agreement = LEVELS.map((level, index) => {
+      const expected = lanes[level].map((hit) => hit.id); const actual = this.shadowIndex!.search(identity, level, queryVectors[index]!, { limit: 6 }).map((hit) => hit.memoryId);
+      return { level, recallAt6: recallAtK(expected, actual, 6), expected: expected.length, candidates: actual.length };
+    });
+    logger.log("info", "centroid_shadow_compare", { ownerId: identity.ownerId, botId: identity.botId, agreement });
+  }
 
   async identity(event: HookEvent): Promise<Identity> { return resolveIdentity(event, this.config, this.repository); }
 
@@ -95,8 +125,10 @@ export class MemoryService {
     const queryVectors = await Promise.all(LEVELS.map((level) => this.embedder.embed(interpreted[level], "query")));
     const laneResults = await Promise.all(LEVELS.map((level, index) => this.repository.search(identity, level, interpreted[level], queryVectors[index]!, 6)));
     const lanes = Object.fromEntries(LEVELS.map((level, index) => [level, laneResults[index]!])) as Record<MemoryLevel, SearchHit[]>;
+    this.observeShadow(identity, queryVectors, lanes);
     const hits = selectAcrossLanes(lanes);
     await this.repository.recordExposures(identity, generationId, hits).catch(() => undefined);
+    await this.repository.recordEvent(identity, "recall", generationId, { hitCount: hits.length, degraded, lanes: hits.map((hit) => hit.level) }).catch(() => undefined);
     const additionalContext = formatContext(hits);
     const memoryServiceMs = Date.now() - started;
     logger.log("info", "memory_recall", { ownerId: identity.ownerId, botId: identity.botId, conversationId: identity.conversationId,
@@ -122,7 +154,25 @@ export class MemoryService {
     const scopeKey = scopeType === "conversation" ? identity.conversationId : scopeType === "project" ? identity.projectId ?? identity.botId : identity.botId;
     const draft = memoryDraftSchema.parse({ trigger, body, importance,
       scopeType, scopeKey, sourceGenerationId: `explicit:${crypto.randomUUID()}` });
-    return this.repository.save(identity, draft, await embeddingsForDraft(this.embedder, draft));
+    const id = await this.repository.save(identity, draft, await embeddingsForDraft(this.embedder, draft));
+    this.shadowReady.delete(this.namespaceKey(identity));
+    await this.repository.recordEvent(identity, "remember", draft.sourceGenerationId, { memoryId: id, scopeType }).catch(() => undefined);
+    return id;
+  }
+
+  async note(identity: Identity, content: string): Promise<string> { return this.repository.addNote(identity, content); }
+
+  async reflect(identity: Identity, summary: string, resolution: string) {
+    return this.repository.enqueueReflection(identity, summary, resolution);
+  }
+
+  async brainstorm(identity: Identity, thoughts: BrainstormThought[]) {
+    const results = await Promise.all(thoughts.map(async (thought) => {
+      const recall = await this.search(identity, thought.thought, { concrete: thought.concrete, abstract: thought.abstract, meta: thought.meta });
+      return { thought: thought.thought, hits: recall.hits, context: recall.additionalContext };
+    }));
+    await this.repository.recordEvent(identity, "brainstorm", undefined, { thoughtCount: thoughts.length, hitCounts: results.map((result) => result.hits.length) }).catch(() => undefined);
+    return { results };
   }
 
   async search(identity: Identity, text: string, queries?: ThreeLevels): Promise<RecallResult> {
@@ -137,7 +187,8 @@ export class MemoryService {
     const turn = job.payload;
     const existing = await this.repository.recentMemorySummary(turn.identity, 20);
     const prompt = consolidationPrompt({ generationId: turn.generationId, botId: turn.identity.botId, conversationId: turn.identity.conversationId,
-      ...(turn.identity.projectId ? { projectId: turn.identity.projectId } : {}), userText: turn.userText, assistantText: turn.assistantText, existingMemories: existing });
+      ...(turn.identity.projectId ? { projectId: turn.identity.projectId } : {}), userText: turn.userText, assistantText: turn.assistantText,
+      existingMemories: existing, ...(turn.chapter ? { chapter: turn.chapter } : {}) });
     const operations = await this.grok.consolidate(prompt, signal);
     for (const operation of operations) {
       if (operation.operation === "none" || operation.operation === "reinforce") { await this.repository.apply(turn.identity, operation); continue; }
@@ -150,6 +201,7 @@ export class MemoryService {
       const draft = memoryDraftSchema.parse({ ...requested, scopeType: scopeType === "project" && !turn.identity.projectId ? "bot" : scopeType,
         scopeKey, sourceGenerationId: turn.generationId });
       await this.repository.apply(turn.identity, { ...operation, memory: draft }, await embeddingsForDraft(this.embedder, draft));
+      this.shadowReady.delete(this.namespaceKey(turn.identity));
     }
   }
 }

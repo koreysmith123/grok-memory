@@ -2,7 +2,9 @@
 set -euo pipefail
 
 if command -v node >/dev/null 2>&1 && [ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ]; then
-  exit 0
+  # install.sh sources this helper so PATH changes survive. Return to the
+  # installer when Node is already suitable instead of terminating it.
+  return 0 2>/dev/null || exit 0
 fi
 
 if [ "$(uname -s)" != "Linux" ]; then

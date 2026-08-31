@@ -7,6 +7,7 @@ import { logger } from "./log.js";
 import type { MemoryService } from "./memory/service.js";
 import type { HookEvent } from "./types.js";
 import { threeLevelsSchema } from "./memory/schemas.js";
+import { grokBuildAuthenticated } from "./grok-build.js";
 
 async function json(req: IncomingMessage): Promise<any> {
   let body = "";
@@ -26,6 +27,8 @@ function send(res: ServerResponse, status: number, value: unknown): void {
 export class MemoryDaemon {
   private stopping = false;
   private lastPruneAt = 0;
+  private lastAuthCheckAt = 0;
+  private lastAuthenticated: boolean | undefined;
   private readonly workerId = `${hostname()}:${process.pid}`;
   constructor(private readonly config: Config, private readonly repository: MemoryRepository, private readonly service: MemoryService) {}
 
@@ -64,6 +67,15 @@ export class MemoryDaemon {
   private async workerLoop(): Promise<void> {
     while (!this.stopping) {
       try {
+        if (Date.now() - this.lastAuthCheckAt > 30_000) {
+          const authenticated = grokBuildAuthenticated();
+          if (authenticated && this.lastAuthenticated !== true) {
+            const requeued = await this.repository.requeueFailedJobs(500);
+            if (requeued > 0) logger.log("info", "auth_jobs_requeued", { count: requeued });
+          }
+          this.lastAuthenticated = authenticated;
+          this.lastAuthCheckAt = Date.now();
+        }
         if (Date.now() - this.lastPruneAt > 86_400_000) {
           await this.repository.pruneTurns(this.config.retentionDays);
           this.lastPruneAt = Date.now();
@@ -73,6 +85,7 @@ export class MemoryDaemon {
         try { await this.service.processJob(job); await this.repository.finishJob(job.id, true); }
         catch (error) { await this.repository.finishJob(job.id, false, error instanceof Error ? error.message : String(error)); }
       } catch (error) {
+        if (this.stopping) return;
         logger.log("error", "worker_loop_failed", { error: error instanceof Error ? error.message : String(error) });
         await new Promise((resolve) => setTimeout(resolve, Math.max(1_000, this.config.jobPollMs)));
       }
@@ -83,6 +96,11 @@ export class MemoryDaemon {
     if (name === "health") return send(res, 200, await this.repository.health());
     const identity = identityArgs(args);
     if (name === "search") return send(res, 200, await this.service.search(identity, String(args.query ?? "")));
+    if (name === "note") return send(res, 200, { id: await this.service.note(identity, String(args.content ?? "")) });
+    if (name === "reflect") return send(res, 200, await this.service.reflect(identity, String(args.summary ?? ""), String(args.resolution ?? "")));
+    if (name === "brainstorm") return send(res, 200, await this.service.brainstorm(identity, args.thoughts as any));
+    if (name === "timeline") return send(res, 200, { entries: await this.repository.timeline(identity, Math.min(200, Number(args.limit ?? 50))) });
+    if (name === "compliance") return send(res, 200, await this.repository.compliance(identity));
     if (name === "recall") {
       const queries = threeLevelsSchema.parse({ concrete: args.concrete, abstract: args.abstract, meta: args.meta });
       return send(res, 200, await this.service.search(identity, String(args.currentContext ?? args.concrete ?? ""), queries));
@@ -98,7 +116,9 @@ export class MemoryDaemon {
     if (name === "rate") { await this.repository.rate(identity, String(args.memoryId), String(args.generationId), Number(args.usefulness)); return send(res, 200, { ok: true }); }
     if (name === "forget") {
       if (args.confirm !== `forget:${args.memoryId}`) return send(res, 400, { error: "exact confirmation token required" });
-      return send(res, 200, { forgotten: await this.repository.forget(identity, String(args.memoryId)) });
+      const forgotten = await this.repository.forget(identity, String(args.memoryId));
+      if (forgotten) await this.repository.recordEvent(identity, "forget", undefined, { memoryId: String(args.memoryId) }).catch(() => undefined);
+      return send(res, 200, { forgotten });
     }
     return send(res, 404, { error: "unknown tool" });
   }

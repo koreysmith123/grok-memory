@@ -72,6 +72,12 @@ the daemon owns only embedding, retrieval, and asynchronous reflection,
 while PostgreSQL transactions and row-level security make simultaneous multi-Bot
 reads and writes safe.
 
+PostgreSQL remains the canonical store. An optional `centroid-shadow` mode rebuilds the
+original NeoSmith-style namespace-aware centroid and binary-quantized index in memory,
+compares its recall against pgvector, and logs agreement without changing production
+answers. Enable it with `GROK_MEMORY_SEARCH_BACKEND=centroid-shadow`. This creates a safe
+path to a faster backend without putting concurrent writes or namespace isolation at risk.
+
 ## What happens on every turn
 
 1. GrokBot begins a substantive turn using its normal, already-warm model context.
@@ -80,13 +86,21 @@ reads and writes safe.
 3. EmbeddingGemma embeds all three search expressions locally and in parallel.
 4. PostgreSQL searches three namespace-filtered vector and full-text lanes in parallel.
 5. Distinct results are ranked by semantic match, words, recency, importance, and
-   observed usefulness, then returned as the MCP tool result in the same turn.
+   observed usefulness. Every selected result expands to its complete concrete,
+   abstract, and meta trigger/body chain before returning in the same turn.
 6. GrokBot treats the returned memories as fallible context and continues its answer.
 7. On Grok Build hosts that expose lifecycle hooks, those hooks record bounded turn metadata and fail open.
 8. When the turn establishes durable knowledge, that same active GrokBot calls
    `memory_remember` with concrete, abstract, and meta representations.
 9. `afterAgentResponse` durably records the completed turn; optional asynchronous
    consolidation can run when the standalone Grok Build CLI is authenticated.
+
+While a chapter is unfolding, the active Bot can leave lightweight `memory_note`
+breadcrumbs. At a resolution point it calls `memory_reflect`; RecallSmith atomically
+collects completed chapter turns, notes, the active-context summary, and full existing
+memory chains for asynchronous consolidation. `memory_brainstorm` searches one to four
+three-level inner-monologue thoughts in parallel. `memory_timeline` exposes the private
+chronology of observed turns, notes, recalls, learning, reflection, and memories.
 
 Normal recall and explicit memory writes never start a second Grok Build process or model request. Hooks call the
 persistent local daemon and fail open on any timeout or outage. Reflection is asynchronous.
@@ -98,6 +112,11 @@ call arriving to its result returning. Typical warm embedding plus PostgreSQL wo
 is expected to be tens of milliseconds. GrokBot's normal time to decide to call a
 tool is separate host-model latency; the memory system does not add another model
 startup or generation before retrieval.
+
+The host ultimately decides whether to invoke an MCP tool. RecallSmith makes recall the
+normal skill behavior and records observed calls, but it does not claim technically
+guaranteed recall on every host turn. Hook fallback is explicitly marked degraded when it
+must search the literal prompt instead of active-model three-level descriptions.
 
 ## Install from a GitHub checkout
 
@@ -113,6 +132,10 @@ installs PostgreSQL 17 plus pgvector and creates a dedicated local cluster. It t
 applies migrations, warms EmbeddingGemma, starts the daemon, and prints an absolute
 stdio manifest from `.grok-memory/grokbot-mcp.json`.
 
+On upgrades, the installer automatically re-embeds existing memories with trigger-only
+document vectors. Lesson bodies remain in full-text ranking and surfaced context but no
+longer dilute the primary situation-matching vector.
+
 The GrokBot performing the installation automatically finishes the native
 `AddMcpServer` registration, both skill installations, profile activation, disposable canary, and health
 verification. A shell-written `~/.cursor/mcp.json` is retained only for Grok Build
@@ -123,7 +146,8 @@ compatibility; it does not register the server in GrokBot.
 Normal recall and `memory_remember` use the already-active
 GrokBot model and require no separate Grok CLI login. Optional background consolidation
 does require an existing Grok Build login or `XAI_API_KEY`; never put credentials in
-the repository.
+the repository. Authentication failures are retained as failed jobs; when credentials
+first appear, the daemon requeues bounded authentication-failed jobs automatically.
 
 ## Bot identity and privacy
 
@@ -165,6 +189,7 @@ Grok Build installation.
 grok-memory doctor --json
 grok-memory build-identity --json
 grok-memory migrate
+grok-memory reembed-triggers
 grok-memory emulate test-bot
 npm run validate
 npm run test:postgres

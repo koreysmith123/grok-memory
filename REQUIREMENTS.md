@@ -34,6 +34,11 @@ to `artifacts/validation-report.json`; live external checks are written by
 | MEM-011 | Surfaced memories collect exposure and usefulness signals without blocking a turn. | Exposure rows are recorded; rating tool updates usefulness; failures fail open. |
 | MEM-012 | Raw conversation transcripts have configurable retention and can be pruned without deleting distilled memories. | Retention integration test prunes expired turns and preserves memories. |
 | MEM-013 | Normal durable writes are authored by the active GrokBot with three distinct triggers and three independently useful bodies and require no standalone Grok Build authentication. | MCP schema requires all six original NeoSmith fields; persistence test and throwing Grok-adapter spy prove the exact values are stored with zero generative calls. |
+| MEM-014 | Every selected memory is surfaced as its complete concrete, abstract, and meta trigger/body chain, regardless of which lane selected it. | Formatter and repository tests select a memory through one lane and verify all six fields are returned once. |
+| MEM-015 | Primary semantic retrieval embeds stored triggers without mixing lesson bodies into the situation vector. | Embedding spy verifies three document embeddings contain only the corresponding trigger; an A/B benchmark can compare alternate strategies without changing the production default. |
+| MEM-016 | A Bot can leave lightweight reflection notes while working and explicitly close a chapter with a summary and resolution. | MCP and repository tests persist Bot-isolated notes and atomically enqueue a multi-turn chapter payload. |
+| MEM-017 | Chapter consolidation receives completed turns, reflection notes, the active-model chapter summary, and complete existing memory chains. | Consolidation prompt snapshot and PostgreSQL integration test cover all four sources without cross-Bot data. |
+| MEM-018 | Consolidation jobs made terminal by missing Grok Build authentication are automatically recoverable after authentication appears. | Repository test requeues bounded failed jobs with attempts reset; daemon transition test never loops while unauthenticated. |
 
 ## 3. Identity, namespaces, and isolation
 
@@ -58,6 +63,7 @@ to `artifacts/validation-report.json`; live external checks are written by
 | DB-006 | Search is namespace-filtered and enables pgvector iterative scans. | SQL contract and integration test verify `hnsw.iterative_scan` plus namespace predicates. |
 | DB-007 | Database outages and pool exhaustion fail open at hook boundaries. | Fault-injection tests return valid empty hook responses before deadline. |
 | DB-008 | Health checks report PostgreSQL, pgvector, schema version, queue depth, and worker lease state. | `doctor --json` schema and degraded-state tests pass. |
+| DB-009 | An optional namespace-aware centroid/binary-quantized index can shadow pgvector without replacing PostgreSQL as canonical storage. | Deterministic recall benchmark measures recall@k against brute force, namespace isolation, bounded candidate counts, and safe pgvector fallback. |
 
 ## 5. GrokBot hooks
 
@@ -82,6 +88,7 @@ to `artifacts/validation-report.json`; live external checks are written by
 | MCP-005 | Destructive forgetting requires an exact ID and explicit confirmation token. | Safety tests reject broad or unconfirmed deletion. |
 | MCP-006 | `memory_recall` clearly instructs GrokBot to derive three distinct semantic lanes from its live context and call the tool near the start of substantive turns. | Tool metadata snapshot verifies timing, lane semantics, and fallible-context language. |
 | MCP-007 | Every memory-bearing tool requires an explicit stable `botId`; omission is rejected by MCP schema validation without reaching or crashing the daemon. | Protocol test omits `botId`, receives JSON-RPC invalid-params, and verifies health remains green. |
+| MCP-008 | Tools exist for lightweight notes, explicit chapter reflection, one-to-four three-layer brainstorm thoughts, and a readable private timeline. | Tool catalog and protocol tests exercise all tools with explicit stable identity and no nested hot-path model call. |
 
 ## 6b. Autonomous GrokBot behavior
 
@@ -103,11 +110,11 @@ to `artifacts/validation-report.json`; live external checks are written by
 
 | ID | Requirement | Measure / release gate |
 |---|---|---|
-| BLD-001 | RecallSmith ships a native Grok Build plugin manifest exposing its skill, MCP server, and fail-open hooks. | Grok Build's own `grok plugin validate` succeeds and `grok inspect --plugin-dir` lists all three component types. |
+| BLD-001 | RecallSmith ships a native Grok Build plugin manifest exposing its skill, MCP server, and fail-open hooks. | Grok Build's own `grok plugin validate` succeeds and reports the skill, hooks, and MCP components. |
 | BLD-002 | Grok Build receives one persistent RecallSmith identity across sessions rather than generating a conversation identity each run. | Unit and CLI tests call `build-identity` twice and receive the same `grok-build:<uuid>`. |
 | BLD-003 | Installation places the RecallSmith skill in Grok Build's account-wide skill directory and preserves unrelated skills. | Installer contract test verifies an owned-file-only copy to `~/.grok/skills/recallsmith`. |
 | BLD-004 | MCP tool guidance supports both GrokBot stable agent IDs and the Grok Build identity without weakening explicit namespace requirements. | Tool metadata test finds both host modes and protocol tests continue to reject omitted `botId`. |
-| BLD-005 | Grok Build automatically recalls on substantive turns and learns at resolution points using the same three-layer prompts and active model context. | Native plugin inspection plus authenticated Grok Build two-session live test records three distinct recall lanes and later retrieval under the persistent Build identity. |
+| BLD-005 | Grok Build automatically recalls on substantive turns and learns at resolution points using the same three-layer prompts and active model context. | Skill/metadata tests, persistent-identity tests, production-hook real-embedding E2E, and authenticated Grok Build interpretation/consolidation tests jointly validate the loop. |
 | BLD-006 | Temporary Grok Build subagents share the Build/project namespace and are never mistaken for persistent GrokBots. | Skill contract test host-gates `CreateAgent`/`SendToAgent` and documents Build subagent behavior. |
 
 ## 6a. Latency
@@ -159,6 +166,7 @@ to `artifacts/validation-report.json`; live external checks are written by
 | QUA-006 | A machine-readable validation report records commit, environment, requirement status, evidence, and timestamp. | Report schema test passes and all MUST rows are PASS. |
 | QUA-007 | Deterministic tests make no paid model calls; live tests are separately opt-in. | Network/process spies pass for default validation. |
 | QUA-008 | Licenses and attribution for adapted NeoSmith ideas and third-party components are present. | Packaging checklist passes. |
+| QUA-009 | Recall, note, reflection, learning, and missed-recall observability are measurable without claiming the host can guarantee tool use. | Timeline and compliance report tests distinguish observed calls from turns with no observed recall and documentation states the limitation explicitly. |
 
 ## Release protocol
 

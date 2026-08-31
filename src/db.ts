@@ -2,7 +2,8 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg, { type PoolClient } from "pg";
-import type { Identity, MemoryDraft, MemoryLevel, SearchHit, TurnRecord } from "./types.js";
+import type { Identity, MemoryDraft, MemoryLevel, SearchHit, TimelineEntry, TurnRecord } from "./types.js";
+import type { IndexRecord } from "./index/centroid.js";
 
 const { Pool } = pg;
 
@@ -20,6 +21,8 @@ export interface MemoryRepository {
   recordPrompt(identity: Identity, generationId: string, prompt: string, model?: string): Promise<void>;
   promptForGeneration(identity: Identity, generationId: string): Promise<string>;
   recentTurns(identity: Identity, limit: number): Promise<Array<{ userText: string; assistantText: string }>>;
+  addNote(identity: Identity, content: string): Promise<string>;
+  enqueueReflection(identity: Identity, summary: string, resolution: string): Promise<{ generationId: string; turnCount: number; noteCount: number }>;
   completeTurnAndEnqueue(turn: TurnRecord): Promise<void>;
   search(identity: Identity, level: MemoryLevel, text: string, embedding: number[], limit: number): Promise<SearchHit[]>;
   recordExposures(identity: Identity, generationId: string, hits: SearchHit[]): Promise<void>;
@@ -27,12 +30,19 @@ export interface MemoryRepository {
   apply(identity: Identity, operation: any, embeddings?: Record<MemoryLevel, number[]>): Promise<void>;
   claimJob(workerId: string): Promise<ClaimedJob | undefined>;
   finishJob(jobId: string, ok: boolean, error?: string): Promise<void>;
+  requeueFailedJobs(limit?: number): Promise<number>;
   recentMemorySummary(identity: Identity, limit: number): Promise<string>;
   rate(identity: Identity, memoryId: string, generationId: string, usefulness: number): Promise<void>;
   forget(identity: Identity, memoryId: string): Promise<boolean>;
   grant(identity: Identity, memoryId: string, granteeBotId: string): Promise<void>;
   pruneTurns(retentionDays: number): Promise<number>;
   inspect(identity: Identity, limit: number): Promise<Array<Record<string, unknown>>>;
+  timeline(identity: Identity, limit: number): Promise<TimelineEntry[]>;
+  compliance(identity: Identity): Promise<{ completedTurns: number; observedRecallCalls: number; exactlyPairedTurns: number; turnsWithoutExactObservedRecall: number }>;
+  indexRecords(identity: Identity): Promise<IndexRecord[]>;
+  pendingTriggerEmbeddings(limit: number): Promise<Array<{ id: string; trigger: Record<MemoryLevel, string> }>>;
+  updateTriggerEmbeddings(id: string, embeddings: Record<MemoryLevel, number[]>): Promise<void>;
+  recordEvent(identity: Identity, eventType: "recall" | "remember" | "note" | "reflect" | "rate" | "forget" | "brainstorm", generationId?: string, details?: Record<string, unknown>): Promise<void>;
   health(): Promise<Record<string, unknown>>;
   close(): Promise<void>;
 }
@@ -41,6 +51,8 @@ function vectorLiteral(vector: number[]): string {
   if (vector.length !== 768 || vector.some((value) => !Number.isFinite(value))) throw new Error("Expected a finite 768-dimensional vector");
   return `[${vector.join(",")}]`;
 }
+
+function parseVector(value: string): number[] { return value.slice(1, -1).split(",").map(Number); }
 
 export function scoreMemory(input: { vectorScore: number; lexicalScore: number; importance: number; usefulness: number; ageDays: number }): number {
   const recency = 0.5 + 0.5 * Math.max(0, 1 - Math.max(0, input.ageDays) / 90);
@@ -65,7 +77,7 @@ export class PostgresRepository implements MemoryRepository {
       await this.pool.query(`REVOKE ALL ON memory_grants FROM ${appRole}`);
       await this.pool.query(`GRANT SELECT ON memory_grants TO ${appRole}`);
       await this.pool.query(`GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ${appRole}`);
-      await this.pool.query(`GRANT EXECUTE ON FUNCTION grok_memory_claim_job(text), grok_memory_finish_job(uuid,boolean,text), grok_memory_queue_depth(), grok_memory_grant(uuid,text), grok_memory_prune_turns(integer) TO ${appRole}`);
+      await this.pool.query(`GRANT EXECUTE ON FUNCTION grok_memory_claim_job(text), grok_memory_finish_job(uuid,boolean,text), grok_memory_queue_depth(), grok_memory_grant(uuid,text), grok_memory_prune_turns(integer), grok_memory_requeue_failed(integer) TO ${appRole}`);
     }
   }
 
@@ -120,6 +132,49 @@ export class PostgresRepository implements MemoryRepository {
     });
   }
 
+  async addNote(identity: Identity, content: string): Promise<string> {
+    return this.scoped(identity, async (client) => {
+      const result = await client.query(`INSERT INTO reflection_notes(owner_id,bot_id,conversation_id,content)
+        VALUES($1,$2,$3,$4) RETURNING id`, [identity.ownerId, identity.botId, identity.conversationId, content]);
+      await client.query(`INSERT INTO memory_events(owner_id,bot_id,conversation_id,event_type,details)
+        VALUES($1,$2,$3,'note',$4::jsonb)`, [identity.ownerId, identity.botId, identity.conversationId, JSON.stringify({ noteId: result.rows[0].id })]);
+      return result.rows[0].id as string;
+    });
+  }
+
+  async enqueueReflection(identity: Identity, summary: string, resolution: string): Promise<{ generationId: string; turnCount: number; noteCount: number }> {
+    return this.scoped(identity, async (client) => {
+      await client.query(`INSERT INTO chapter_state(owner_id,bot_id,conversation_id) VALUES($1,$2,$3)
+        ON CONFLICT(owner_id,bot_id,conversation_id) DO NOTHING`, [identity.ownerId, identity.botId, identity.conversationId]);
+      const state = await client.query(`SELECT reflected_through FROM chapter_state
+        WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3 FOR UPDATE`, [identity.ownerId, identity.botId, identity.conversationId]);
+      const through = state.rows[0].reflected_through;
+      const turns = await client.query(`SELECT user_text,assistant_text FROM turns
+        WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3 AND created_at>$4 AND assistant_text<>''
+        ORDER BY created_at LIMIT 50`, [identity.ownerId, identity.botId, identity.conversationId, through]);
+      const notes = await client.query(`SELECT id,content,created_at FROM reflection_notes
+        WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3 AND created_at>$4
+        ORDER BY created_at LIMIT 100`, [identity.ownerId, identity.botId, identity.conversationId, through]);
+      const generationId = `reflection:${crypto.randomUUID()}`;
+      const payload: TurnRecord = {
+        identity, generationId, userText: summary, assistantText: resolution,
+        chapter: {
+          summary, resolution,
+          turns: turns.rows.map((row: any) => ({ userText: row.user_text, assistantText: row.assistant_text })),
+          notes: notes.rows.map((row: any) => ({ id: row.id, content: row.content, createdAt: new Date(row.created_at).toISOString() })),
+        },
+      };
+      await client.query(`INSERT INTO jobs(owner_id,bot_id,kind,dedupe_key,payload)
+        VALUES($1,$2,'consolidate',$3,$4::jsonb)`, [identity.ownerId, identity.botId, generationId, JSON.stringify(payload)]);
+      await client.query(`UPDATE chapter_state SET reflected_through=now(),updated_at=now()
+        WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3`, [identity.ownerId, identity.botId, identity.conversationId]);
+      await client.query(`INSERT INTO memory_events(owner_id,bot_id,conversation_id,generation_id,event_type,details)
+        VALUES($1,$2,$3,$4,'reflect',$5::jsonb)`, [identity.ownerId, identity.botId, identity.conversationId, generationId,
+        JSON.stringify({ turnCount: turns.rowCount, noteCount: notes.rowCount, summary, resolution })]);
+      return { generationId, turnCount: turns.rowCount ?? 0, noteCount: notes.rowCount ?? 0 };
+    });
+  }
+
   async completeTurnAndEnqueue(turn: TurnRecord): Promise<void> {
     await this.bind(turn.identity);
     await this.scoped(turn.identity, async (client) => {
@@ -148,6 +203,7 @@ export class PostgresRepository implements MemoryRepository {
         ORDER BY ts_rank_cd(to_tsvector('english',trigger_${column} || ' ' || body_${column}), plainto_tsquery('english',$2)) DESC LIMIT $6
       ), candidates AS (SELECT id FROM vector_candidates UNION SELECT id FROM lexical_candidates)
       SELECT id, '${level}' AS level, trigger_${column} AS trigger, body_${column} AS body,
+        trigger_concrete,trigger_abstract,trigger_meta,body_concrete,body_abstract,body_meta,
         scope_type, scope_key, 1-(embedding_${column} <=> $1::vector) AS vector_score,
         ts_rank_cd(to_tsvector('english',trigger_${column} || ' ' || body_${column}), plainto_tsquery('english',$2)) AS lexical_score,
         importance, usefulness, updated_at
@@ -161,7 +217,11 @@ export class PostgresRepository implements MemoryRepository {
         const usefulness = Number(row.usefulness);
         return { id: row.id, level, trigger: row.trigger, body: row.body, scopeType: row.scope_type, scopeKey: row.scope_key,
           vectorScore, lexicalScore, importance, usefulness, updatedAt: new Date(row.updated_at),
-          finalScore: scoreMemory({ vectorScore, lexicalScore: Number(row.lexical_score), importance, usefulness, ageDays }) } satisfies SearchHit;
+          finalScore: scoreMemory({ vectorScore, lexicalScore: Number(row.lexical_score), importance, usefulness, ageDays }),
+          chain: { id: row.id,
+            trigger: { concrete: row.trigger_concrete, abstract: row.trigger_abstract, meta: row.trigger_meta },
+            body: { concrete: row.body_concrete, abstract: row.body_abstract, meta: row.body_meta },
+            importance, usefulness, scopeType: row.scope_type, scopeKey: row.scope_key, updatedAt: new Date(row.updated_at) } } satisfies SearchHit;
       }).sort((a: SearchHit, b: SearchHit) => b.finalScore - a.finalScore).slice(0, limit);
     });
   }
@@ -182,8 +242,8 @@ export class PostgresRepository implements MemoryRepository {
 
   private async insertMemory(client: PoolClient, identity: Identity, draft: MemoryDraft, embeddings: Record<MemoryLevel, number[]>): Promise<string> {
       const result = await client.query(`INSERT INTO memories(owner_id,bot_id,scope_type,scope_key,trigger_concrete,trigger_abstract,trigger_meta,
-        body_concrete,body_abstract,body_meta,embedding_concrete,embedding_abstract,embedding_meta,importance,source_generation_id)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::vector,$12::vector,$13::vector,$14,$15)
+        body_concrete,body_abstract,body_meta,embedding_concrete,embedding_abstract,embedding_meta,importance,source_generation_id,embedding_version)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::vector,$12::vector,$13::vector,$14,$15,2)
         ON CONFLICT(owner_id,bot_id,source_generation_id,trigger_concrete) DO UPDATE SET importance=GREATEST(memories.importance,excluded.importance),updated_at=now() RETURNING id`,
         [identity.ownerId, identity.botId, draft.scopeType, draft.scopeKey, draft.trigger.concrete, draft.trigger.abstract, draft.trigger.meta,
           draft.body.concrete, draft.body.abstract, draft.body.meta, vectorLiteral(embeddings.concrete), vectorLiteral(embeddings.abstract), vectorLiteral(embeddings.meta), draft.importance, draft.sourceGenerationId]);
@@ -217,15 +277,25 @@ export class PostgresRepository implements MemoryRepository {
     await this.pool.query("SELECT grok_memory_finish_job($1,$2,$3)", [jobId, ok, error?.slice(0, 2_000) ?? null]);
   }
 
+  async requeueFailedJobs(limit = 100): Promise<number> {
+    const result = await this.pool.query("SELECT grok_memory_requeue_failed($1) AS count", [limit]);
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
   async recentMemorySummary(identity: Identity, limit: number): Promise<string> {
     const rows = await this.inspect(identity, limit);
-    return rows.map((row) => `[${row.id}] ${row.trigger_concrete}: ${row.body_concrete}`).join("\n");
+    return rows.map((row) => JSON.stringify({ id: row.id, scopeType: row.scope_type, scopeKey: row.scope_key,
+      trigger: { concrete: row.trigger_concrete, abstract: row.trigger_abstract, meta: row.trigger_meta },
+      body: { concrete: row.body_concrete, abstract: row.body_abstract, meta: row.body_meta },
+      importance: row.importance, usefulness: row.usefulness })).join("\n");
   }
 
   async rate(identity: Identity, memoryId: string, generationId: string, usefulness: number): Promise<void> {
     await this.scoped(identity, async (client) => {
       await client.query("UPDATE memory_exposures SET usefulness=$4 WHERE memory_id=$1 AND bot_id=$2 AND generation_id=$3", [memoryId, identity.botId, generationId, usefulness]);
       await client.query("UPDATE memories SET usefulness=(usefulness*0.8)+($2::real/100*0.2),updated_at=now() WHERE id=$1", [memoryId, usefulness]);
+      await client.query(`INSERT INTO memory_events(owner_id,bot_id,conversation_id,generation_id,event_type,details)
+        VALUES($1,$2,$3,$4,'rate',$5::jsonb)`, [identity.ownerId, identity.botId, identity.conversationId, generationId, JSON.stringify({ memoryId, usefulness })]);
     });
   }
 
@@ -246,14 +316,80 @@ export class PostgresRepository implements MemoryRepository {
   }
 
   async inspect(identity: Identity, limit: number): Promise<Array<Record<string, unknown>>> {
-    return this.scoped(identity, async (client) => (await client.query(`SELECT id,scope_type,scope_key,trigger_concrete,body_concrete,importance,usefulness,exposure_count,updated_at
+    return this.scoped(identity, async (client) => (await client.query(`SELECT id,scope_type,scope_key,trigger_concrete,trigger_abstract,trigger_meta,
+      body_concrete,body_abstract,body_meta,importance,usefulness,exposure_count,updated_at
       FROM memories WHERE status='active' ORDER BY updated_at DESC LIMIT $1`, [limit])).rows);
+  }
+
+  async timeline(identity: Identity, limit: number): Promise<TimelineEntry[]> {
+    return this.scoped(identity, async (client) => {
+      const result = await client.query(`SELECT * FROM (
+        SELECT 'turn' AS kind,created_at,generation_id,left(user_text,500) AS summary,
+          jsonb_build_object('assistant',left(assistant_text,500),'model',model) AS details FROM turns
+          WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3
+        UNION ALL
+        SELECT 'note',created_at,NULL,left(content,500),jsonb_build_object('id',id) FROM reflection_notes
+          WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3
+        UNION ALL
+        SELECT 'event',created_at,generation_id,event_type,details FROM memory_events
+          WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3
+        UNION ALL
+        SELECT 'memory',created_at,source_generation_id,left(trigger_concrete,500),
+          jsonb_build_object('id',id,'body',left(body_concrete,500),'status',status) FROM memories
+          WHERE owner_id=$1 AND bot_id=$2
+      ) timeline ORDER BY created_at DESC LIMIT $4`, [identity.ownerId, identity.botId, identity.conversationId, limit]);
+      return result.rows.reverse().map((row: any) => ({ kind: row.kind, createdAt: new Date(row.created_at).toISOString(),
+        ...(row.generation_id ? { generationId: row.generation_id } : {}), summary: row.summary, details: row.details ?? {} }));
+    });
+  }
+
+  async compliance(identity: Identity): Promise<{ completedTurns: number; observedRecallCalls: number; exactlyPairedTurns: number; turnsWithoutExactObservedRecall: number }> {
+    return this.scoped(identity, async (client) => {
+      const result = await client.query(`SELECT
+        (SELECT count(*) FROM turns WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3 AND assistant_text<>'')::int AS completed_turns,
+        (SELECT count(*) FROM memory_events WHERE owner_id=$1 AND bot_id=$2 AND conversation_id=$3 AND event_type='recall')::int AS recall_calls,
+        (SELECT count(*) FROM turns t WHERE t.owner_id=$1 AND t.bot_id=$2 AND t.conversation_id=$3 AND t.assistant_text<>'' AND EXISTS (
+          SELECT 1 FROM memory_events e WHERE e.owner_id=t.owner_id AND e.bot_id=t.bot_id AND e.conversation_id=t.conversation_id
+          AND e.event_type='recall' AND e.generation_id=t.generation_id))::int AS paired` , [identity.ownerId, identity.botId, identity.conversationId]);
+      const row = result.rows[0]; const completedTurns = Number(row.completed_turns), exactlyPairedTurns = Number(row.paired);
+      return { completedTurns, observedRecallCalls: Number(row.recall_calls), exactlyPairedTurns, turnsWithoutExactObservedRecall: completedTurns - exactlyPairedTurns };
+    });
+  }
+
+  async indexRecords(identity: Identity): Promise<IndexRecord[]> {
+    return this.scoped(identity, async (client) => {
+      const result = await client.query(`SELECT id,owner_id,bot_id,scope_type,scope_key,
+        embedding_concrete::text AS concrete,embedding_abstract::text AS abstract,embedding_meta::text AS meta
+        FROM memories WHERE owner_id=$1 AND bot_id=$2 AND status='active'`, [identity.ownerId, identity.botId]);
+      return result.rows.flatMap((row: any) => (["concrete", "abstract", "meta"] as const).map((level) => ({
+        memoryId: row.id, ownerId: row.owner_id, botId: row.bot_id, scopeType: row.scope_type, scopeKey: row.scope_key, level, vector: parseVector(row[level]),
+      })));
+    });
+  }
+
+  async pendingTriggerEmbeddings(limit: number): Promise<Array<{ id: string; trigger: Record<MemoryLevel, string> }>> {
+    const result = await this.pool.query(`SELECT id,trigger_concrete,trigger_abstract,trigger_meta FROM memories
+      WHERE status='active' AND embedding_version<2 ORDER BY created_at LIMIT $1`, [limit]);
+    return result.rows.map((row: any) => ({ id: row.id, trigger: { concrete: row.trigger_concrete, abstract: row.trigger_abstract, meta: row.trigger_meta } }));
+  }
+
+  async updateTriggerEmbeddings(id: string, embeddings: Record<MemoryLevel, number[]>): Promise<void> {
+    await this.pool.query(`UPDATE memories SET embedding_concrete=$2::vector,embedding_abstract=$3::vector,embedding_meta=$4::vector,
+      embedding_version=2,updated_at=now() WHERE id=$1`, [id, vectorLiteral(embeddings.concrete), vectorLiteral(embeddings.abstract), vectorLiteral(embeddings.meta)]);
+  }
+
+  async recordEvent(identity: Identity, eventType: "recall" | "remember" | "note" | "reflect" | "rate" | "forget" | "brainstorm", generationId?: string, details: Record<string, unknown> = {}): Promise<void> {
+    await this.scoped(identity, async (client) => {
+      await client.query(`INSERT INTO memory_events(owner_id,bot_id,conversation_id,generation_id,event_type,details)
+        VALUES($1,$2,$3,$4,$5,$6::jsonb)`, [identity.ownerId, identity.botId, identity.conversationId, generationId ?? null, eventType, JSON.stringify(details)]);
+    });
   }
 
   async health(): Promise<Record<string, unknown>> {
     const result = await this.pool.query(`SELECT current_database() AS database, extversion AS pgvector_version,
       (SELECT max(version) FROM schema_migrations) AS schema_version,
       grok_memory_queue_depth() AS queue_depth,
+      (SELECT count(*) FROM jobs WHERE state='failed') AS failed_jobs,
       (SELECT count(*) FROM jobs WHERE state='running') AS active_workers,
       (SELECT min(locked_at) FROM jobs WHERE state='running') AS oldest_worker_lease,
       (SELECT max(updated_at) FROM jobs WHERE state='done') AS last_completed_job

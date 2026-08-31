@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import type { Config } from "./config.js";
 import { consolidationSchema, parseJsonObject, threeLevelsSchema } from "./memory/schemas.js";
 import type { ConsolidationOperation, ThreeLevels } from "./types.js";
@@ -15,6 +17,12 @@ export const STRICT_GROK_ARGS = [
   "--no-auto-update", "--output-format", "plain", "--max-turns", "1",
   "--no-memory", "--no-subagents", "--disable-web-search", "--tools", "",
 ] as const;
+
+export function grokBuildAuthenticated(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.XAI_API_KEY?.trim()) return true;
+  const grokHome = env.GROK_HOME?.trim() || join(homedir(), ".grok");
+  return existsSync(join(grokHome, "auth.json"));
+}
 
 export class GrokBuildClient implements GrokReasoner {
   constructor(private readonly config: Pick<Config, "grokBinary" | "grokModel" | "dataDir" | "fixtureDir">) {}
