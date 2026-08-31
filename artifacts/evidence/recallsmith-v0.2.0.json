@@ -1,0 +1,44 @@
+{
+  "suite": "recallsmith-grokbot-enrollment",
+  "version": "0.2.0",
+  "passed": true,
+  "testedAt": "2026-08-31T02:28:03Z",
+  "app": "Grok Bot",
+  "brand": {
+    "name": "RecallSmith",
+    "tagline": "Memory forged from experience."
+  },
+  "parent": {
+    "botId": "1ed19561-7e85-4898-b77d-b1ec7061cab3",
+    "ready": "RECALLSMITH_READY",
+    "sharedDatabasePreserved": true,
+    "skills": ["RecallSmith", "Create RecallSmith Bot"],
+    "recallMs": 167,
+    "canaryDeleted": true
+  },
+  "parentCreatedChild": {
+    "name": "RecallSmith Child Test",
+    "botId": "a1da311f-b5c7-4e88-8e88-6cd3a789fff9",
+    "distinctFromParent": true,
+    "creatorUsedCreateAgent": true,
+    "creatorUsedSendToAgent": true,
+    "testerDirectlyConfiguredChild": false,
+    "ready": "RECALLSMITH_READY",
+    "healthOk": true,
+    "degraded": false,
+    "pgvector": "0.8.0",
+    "schemaVersion": 1,
+    "sharedServiceReinstalled": false,
+    "sixFieldsConfirmed": true,
+    "privateCanaryDeleted": true,
+    "recallMs": 151,
+    "originalRolePreserved": true,
+    "bootstrapRulePresent": true,
+    "operatingRulePresent": true,
+    "pollingRoutineCreated": false
+  },
+  "requirements": {
+    "BOT-010": true,
+    "BOT-011": true
+  }
+}
