@@ -1,0 +1,37 @@
+{
+  "version": "0.2.1",
+  "validatedAt": "2026-08-30",
+  "host": "production-grokbot-vm",
+  "commit": "09dba1c83a673218378ddc8f370edf6e39d735cc",
+  "grokBuild": {
+    "version": "1.0.13",
+    "pluginValidation": "pass",
+    "pluginInstall": "pass",
+    "skills": [
+      "recallsmith",
+      "create-recallsmith-bot"
+    ],
+    "hooks": [
+      "beforeSubmitPrompt",
+      "afterAgentResponse"
+    ],
+    "mcp": {
+      "server": "recallsmith",
+      "doctor": "healthy",
+      "toolCount": 8
+    },
+    "identity": "grok-build:db5332ad-a145-4e96-94e9-c8cef619602b"
+  },
+  "authenticatedTwoSessionRecall": {
+    "status": "blocked",
+    "reason": "Grok Build was not authenticated on the VM",
+    "memoryWritten": false,
+    "cleanupRequired": false
+  },
+  "stateSafety": {
+    "grokBotProfilesChanged": false,
+    "botsCreated": false,
+    "databaseWiped": false,
+    "daemonHealthy": true
+  }
+}
