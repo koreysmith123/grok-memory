@@ -28,7 +28,7 @@ is true.
 5. Preserve your own existing profile description byte-for-byte and append this rule once
    if absent:
 
-   `On every substantive turn, before planning, answering, or acting, invoke and follow the global RecallSmith skill. At resolution points, follow its learning step. Always use your own stable agent ID as botId.`
+   `On every substantive turn, before planning, answering, or acting, invoke and follow the global RecallSmith skill. At resolution points, follow its learning step. Always use your own stable agent ID as botId. Whenever I ask you to create, spawn, hire, duplicate, or add a Bot, automatically invoke Create RecallSmith Bot so the child initializes RecallSmith; I never need to name that skill.`
 
    Update only your own profile with `update_state target=profile action=set`. Do not scan,
    edit, message, or provision sibling Bots. Do not create a polling routine.

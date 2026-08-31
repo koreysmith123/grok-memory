@@ -1,20 +1,34 @@
 ---
 name: recallsmith
-description: Initialize RecallSmith for this GrokBot, then use it on every substantive turn. RecallSmith gives each Bot private experiential memory through three-layer situation recall and durable learning. Invoke when the user says initialize, activate, or set up RecallSmith, and before substantive work after activation.
+description: Initialize RecallSmith, then use it on every substantive turn in GrokBot or Grok Build. RecallSmith provides private experiential memory through three-layer situation recall and durable learning. Invoke for initialization; before substantive work after activation; and whenever a GrokBot user asks to create, spawn, hire, duplicate, or add another Bot.
+when-to-use: Every substantive turn after activation; initialization requests; and every GrokBot request to create, spawn, hire, duplicate, or add a Bot.
 ---
 
 # RecallSmith
 
 RecallSmith is part of how you think, not a feature the user must repeatedly request. The
-shared computer service is installed once, while every Bot enrolls under its own stable ID.
-Never use another Bot's ID.
+computer service is installed once. Every GrokBot enrolls under its own stable ID; Grok
+Build uses one stable RecallSmith identity across sessions and projects. Never use another
+GrokBot's ID.
+
+## Creating GrokBots automatically
+
+When running inside GrokBot and the user asks normally to create, spawn, hire, duplicate,
+or add a Bot, invoke and follow the account-wide `Create RecallSmith Bot` skill
+automatically. The user never needs to name that skill or ask for memory initialization.
+This rule does not apply to temporary Grok Build subagents, which are sessions rather than
+persistent GrokBots.
 
 ## Initialize this Bot
 
 When asked to initialize or activate RecallSmith:
 
-1. Determine your own stable GrokBot agent ID from your profile or `ListAgents`. Select
-   only your individual Bot identity—never a group, channel, or sibling Bot.
+1. Determine the host and stable identity:
+   - In GrokBot, obtain your own stable agent ID from your profile or `ListAgents`. Select
+     only your individual Bot identity—never a group, channel, or sibling Bot.
+   - In Grok Build, run `grok-memory build-identity --json` when the command is installed,
+     or `node "$GROK_PLUGIN_ROOT/dist/cli.js" build-identity --json` from a plugin install.
+     Reuse the returned `botId` on every memory tool call. Do not generate a session ID.
 2. Call `memory_health`. If the tool is unavailable, look for
    `/workspace/grok-memory/.grok-memory/grokbot-mcp.json` and register its exact stdio
    command with `AddMcpServer` as `user-grok-memory`. If the shared checkout is absent,
@@ -24,19 +38,20 @@ When asked to initialize or activate RecallSmith:
    `memory_remember` exposes the six distinct trigger/body fields.
 4. Preserve your existing profile description byte-for-byte and append this rule once:
 
-   `On every substantive turn, before planning, answering, or acting, invoke and follow the global RecallSmith skill. At resolution points, follow its learning step. Always use your own stable agent ID as botId.`
+   `On every substantive turn, before planning, answering, or acting, invoke and follow the global RecallSmith skill. At resolution points, follow its learning step. Always use your own stable agent ID as botId. Whenever I ask you to create, spawn, hire, duplicate, or add a Bot, automatically invoke Create RecallSmith Bot so the child initializes RecallSmith; I never need to name that skill.`
 
-   Update only your own profile. Do not scan or modify sibling Bots and do not create a
-   polling routine.
+   In GrokBot, update only your own profile. In Grok Build there is no Bot profile to edit;
+   the account-wide skill and MCP tool descriptions are the durable operating rule. Do not
+   scan or modify sibling Bots and do not create a polling routine.
 5. Run a private disposable canary: remember six genuinely distinct concrete, abstract,
    and meta trigger/body values under your Bot ID; recall it with three nonverbatim lanes;
    inspect its Bot scope; forget it with `forget:<memoryId>`; and confirm it is absent.
 6. Report `RECALLSMITH_READY` with your Bot ID, health, six-field confirmation, canary
    results, and measured recall latency. Leave no canary data behind.
 
-If your profile already contains the exact rule and health is green, initialization is
-idempotent: verify identity and return `RECALLSMITH_READY` without repeating the canary or
-machine installation.
+If the durable rule is already active and health is green, initialization is idempotent:
+verify identity and return `RECALLSMITH_READY` without repeating the canary or machine
+installation.
 
 ## Recall before substantive work
 

@@ -1,0 +1,16 @@
+{
+  "name": "recallsmith",
+  "version": "0.2.1",
+  "description": "Memory forged from experience: three-layer persistent memory for Grok Build and GrokBot.",
+  "author": {
+    "name": "Pattie Rae",
+    "url": "https://github.com/koreysmith123"
+  },
+  "homepage": "https://github.com/koreysmith123/recallsmith",
+  "repository": "https://github.com/koreysmith123/recallsmith",
+  "license": "MIT",
+  "keywords": ["recallsmith", "agent-memory", "grok-build", "grokbot", "mcp", "pgvector"],
+  "skills": "./skills/",
+  "hooks": "./hooks/grok-hooks.json",
+  "mcpServers": "./mcp.grok.json"
+}

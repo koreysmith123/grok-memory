@@ -48,6 +48,8 @@ fi
 node dist/cli.js migrate
 node dist/cli.js warm-embedding
 node scripts/merge-config.mjs "$INSTALL_DIR"
+node scripts/install-grok-build-assets.mjs "$INSTALL_DIR"
+node dist/cli.js build-identity --json >/dev/null
 GROKBOT_MCP_MANIFEST="$(node scripts/write-grokbot-manifest.mjs "$INSTALL_DIR")"
 
 if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then

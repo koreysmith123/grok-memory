@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "type": "command",
+        "command": "node ${GROK_PLUGIN_ROOT}/dist/cli.js hook before",
+        "timeout": 2,
+        "loop_limit": null,
+        "failClosed": false
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "type": "command",
+        "command": "node ${GROK_PLUGIN_ROOT}/dist/cli.js hook after",
+        "timeout": 3,
+        "loop_limit": null,
+        "failClosed": false
+      }
+    ]
+  }
+}

@@ -39,6 +39,11 @@ test("HOK-006 plugin hooks are valid fail-open version 1 commands", async () => 
   }
   const plugin = JSON.parse(await readFile(join(root, ".cursor-plugin/plugin.json"), "utf8"));
   assert.equal(plugin.hooks, "./hooks/hooks.json"); assert.equal(plugin.mcpServers, "./.mcp.json");
+  const grokPlugin = JSON.parse(await readFile(join(root, ".grok-plugin/plugin.json"), "utf8"));
+  assert.equal(grokPlugin.name, "recallsmith"); assert.equal(grokPlugin.skills, "./skills/");
+  assert.equal(grokPlugin.hooks, "./hooks/grok-hooks.json"); assert.equal(grokPlugin.mcpServers, "./mcp.grok.json");
+  const grokHooks = await readFile(join(root, "hooks/grok-hooks.json"), "utf8");
+  assert.match(grokHooks, /GROK_PLUGIN_ROOT/); assert.match(await readFile(join(root, "mcp.grok.json"), "utf8"), /GROK_PLUGIN_ROOT/);
 });
 
 test("QUA-002 requirements IDs are unique and measurable", async () => {

@@ -9,6 +9,7 @@ import { hookMain } from "./hook.js";
 import { mcpMain } from "./mcp.js";
 import { createRuntime } from "./runtime.js";
 import { verifyOrCreateCacheManifest } from "./cache-integrity.js";
+import { getOrCreateBuildIdentity } from "./build-identity.js";
 
 async function main(): Promise<void> {
   const [command = "help", ...args] = process.argv.slice(2);
@@ -18,6 +19,11 @@ async function main(): Promise<void> {
     return hookMain(kind);
   }
   if (command === "mcp") return mcpMain();
+  if (command === "build-identity") {
+    const botId = await getOrCreateBuildIdentity(loadConfig().dataDir);
+    process.stdout.write(`${args.includes("--json") ? JSON.stringify({ botId, host: "grok-build" }) : botId}\n`);
+    return;
+  }
   if (command === "migrate") {
     const config = loadConfig();
     const { PostgresRepository } = await import("./db.js");
@@ -63,7 +69,7 @@ async function main(): Promise<void> {
     } else await consoleEmulator(args[0] ?? "test-bot");
     return;
   }
-  process.stdout.write(`grok-memory commands:\n  daemon\n  migrate\n  warm-embedding\n  mcp\n  hook before|after\n  doctor --json\n  emulate [bot-id]\n  emulate --replay transcript.json\n`);
+  process.stdout.write(`grok-memory commands:\n  daemon\n  migrate\n  warm-embedding\n  mcp\n  build-identity --json\n  hook before|after\n  doctor --json\n  emulate [bot-id]\n  emulate --replay transcript.json\n`);
 }
 
 main().catch((error) => { process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`); process.exitCode = 1; });

@@ -36,6 +36,8 @@ test("BOT-001 BOT-005 BOT-010 original NeoSmith loop and idempotent enrollment a
   assert.match(skill, /Korey is bracing/); assert.match(skill, /The user is anticipating a social situation/);
   assert.match(skill, /Initialize this Bot/i); assert.match(skill, /Never reinstall a healthy shared service/i);
   assert.match(skill, /Preserve your existing profile description byte-for-byte/i);
+  assert.match(skill, /user never needs to name that skill/i); assert.match(skill, /create, spawn, hire, duplicate/i);
+  assert.match(skill, /Grok Build/); assert.match(skill, /build-identity --json/);
   assert.match(skill, /RECALLSMITH_READY/); assert.doesNotMatch(skill, /every 5 minutes|\*\/5 \* \* \* \*/i);
   const handoff = await readFile(resolve(root, "GROKBOT_INSTALL.md"), "utf8");
   assert.match(handoff, /ListAgents/); assert.match(handoff, /Preserve your own existing profile description byte-for-byte/i);
@@ -50,6 +52,19 @@ test("BOT-011 creator skill bootstraps and verifies a distinct memory-enabled ch
     "RECALLSMITH_READY", "distinct stable Bot ID", "Do not copy the parent's Bot ID",
     "do not create a polling routine", "Do not reinstall a healthy shared service",
   ]) assert.match(skill, new RegExp(phrase, "i"));
+  assert.match(skill, /invoked automatically/i); assert.match(skill, /temporary Build subagent/i);
+});
+
+test("BLD-001 BLD-003 BLD-004 BLD-006 native Grok Build package is explicit", async () => {
+  const manifest = JSON.parse(await readFile(resolve(root, ".grok-plugin/plugin.json"), "utf8"));
+  assert.equal(manifest.name, "recallsmith");
+  for (const component of [manifest.skills, manifest.hooks, manifest.mcpServers]) assert.equal(typeof component, "string");
+  const installer = await readFile(resolve(root, "install.sh"), "utf8");
+  assert.match(installer, /install-grok-build-assets\.mjs/); assert.match(installer, /build-identity --json/);
+  const assets = await readFile(resolve(root, "scripts/install-grok-build-assets.mjs"), "utf8");
+  assert.match(assets, /\.grok.*skills.*recallsmith/s); assert.match(assets, /copyFile/); assert.doesNotMatch(assets, /rm|rmdir/);
+  const mcp = await readFile(resolve(root, "src/mcp.ts"), "utf8");
+  assert.match(mcp, /GrokBot or Grok Build/); assert.match(mcp, /stable RecallSmith identity/);
 });
 
 test("BOT-008 BOT-009 one-message installation contract is strict and self-verifying", async () => {

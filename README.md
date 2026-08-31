@@ -35,10 +35,32 @@ reports `RECALLSMITH_READY`. It does not reinstall PostgreSQL, pgvector, Node.js
 embedding model when they are healthy.
 
 To have an existing Bot create a memory-enabled child, ask it to use the account-wide
-`Create RecallSmith Bot` skill and describe the child you want. The creator puts the
-RecallSmith bootstrap rule in the child's description, sends the child its initialization
-message, and waits for the child to verify its distinct private namespace. No recurring
-scanner or five-minute routine is used.
+`Create RecallSmith Bot` skill and describe the child you want. In normal use you simply
+say `Create a Bot that…`; the main RecallSmith skill invokes the creator skill
+automatically. The creator puts the RecallSmith bootstrap rule in the child's description,
+sends the child its initialization message, and waits for the child to verify its distinct
+private namespace. No recurring scanner or five-minute routine is used.
+
+## Grok Build compatibility
+
+RecallSmith supports Grok Build natively as well as GrokBot. Grok Build discovers the
+native `.grok-plugin/plugin.json`, the RecallSmith skill, lifecycle hooks, and MCP server.
+It can also consume the generated Cursor-compatible MCP and hook configuration.
+
+For a first installation, tell Grok Build:
+
+> Install and initialize RecallSmith from https://github.com/koreysmith123/recallsmith
+
+The repository installer provisions the same local PostgreSQL/pgvector service and
+EmbeddingGemma model, installs the RecallSmith skill under `~/.grok/skills/`, and creates
+one persistent `grok-build:<uuid>` identity. Grok Build reuses that identity across
+sessions and projects; project and conversation scopes remain available separately. Run
+`grok-memory build-identity --json` to inspect it and `grok inspect` or
+`grok mcp doctor grok-memory` to verify discovery.
+
+Grok Build subagents are temporary sessions, not persistent GrokBots. They share the
+parent Grok Build identity and project scope. The `Create RecallSmith Bot` workflow runs
+only when GrokBot's native persistent Bot-management tools are present.
 
 ## Architecture
 
@@ -141,6 +163,7 @@ Grok Build installation.
 
 ```bash
 grok-memory doctor --json
+grok-memory build-identity --json
 grok-memory migrate
 grok-memory emulate test-bot
 npm run validate

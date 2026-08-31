@@ -3,7 +3,7 @@
   "name": "grok-memory",
   "displayName": "RecallSmith",
   "description": "Memory forged from experience for every GrokBot",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": { "name": "Pattie Rae" },
   "license": "MIT",
   "hooks": "./hooks/hooks.json",

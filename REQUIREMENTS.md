@@ -99,6 +99,17 @@ to `artifacts/validation-report.json`; live external checks are written by
 | BOT-010 | An already-installed account can enroll a newly created Bot with the single instruction `Initialize the RecallSmith skill.` without reinstalling healthy machine dependencies. | Skill contract test rejects unconditional installation and a real second-Bot gate verifies distinct identity, green health, profile preservation, and private canary cleanup. |
 | BOT-011 | The `Create RecallSmith Bot` skill creates a child with the bootstrap rule in its description, immediately sends the initialization instruction, and verifies `RECALLSMITH_READY` under a distinct Bot ID. | Skill contract test verifies `CreateAgent`, `SendToAgent`, exact initialization language, identity separation, no polling, and no sibling-memory copying; real parent-created-child gate passes. |
 
+## 6c. Grok Build compatibility
+
+| ID | Requirement | Measure / release gate |
+|---|---|---|
+| BLD-001 | RecallSmith ships a native Grok Build plugin manifest exposing its skill, MCP server, and fail-open hooks. | Grok Build's own `grok plugin validate` succeeds and `grok inspect --plugin-dir` lists all three component types. |
+| BLD-002 | Grok Build receives one persistent RecallSmith identity across sessions rather than generating a conversation identity each run. | Unit and CLI tests call `build-identity` twice and receive the same `grok-build:<uuid>`. |
+| BLD-003 | Installation places the RecallSmith skill in Grok Build's account-wide skill directory and preserves unrelated skills. | Installer contract test verifies an owned-file-only copy to `~/.grok/skills/recallsmith`. |
+| BLD-004 | MCP tool guidance supports both GrokBot stable agent IDs and the Grok Build identity without weakening explicit namespace requirements. | Tool metadata test finds both host modes and protocol tests continue to reject omitted `botId`. |
+| BLD-005 | Grok Build automatically recalls on substantive turns and learns at resolution points using the same three-layer prompts and active model context. | Native plugin inspection plus authenticated Grok Build two-session live test records three distinct recall lanes and later retrieval under the persistent Build identity. |
+| BLD-006 | Temporary Grok Build subagents share the Build/project namespace and are never mistaken for persistent GrokBots. | Skill contract test host-gates `CreateAgent`/`SendToAgent` and documents Build subagent behavior. |
+
 ## 6a. Latency
 
 | ID | Requirement | Measure / release gate |

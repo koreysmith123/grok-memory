@@ -8,6 +8,12 @@ description: Create a new GrokBot that automatically initializes its own private
 Use GrokBot's native Bot-management tools. The shared RecallSmith computer service must be
 installed only once; every child gets a distinct private memory namespace.
 
+This skill is invoked automatically by the main `RecallSmith` skill whenever a GrokBot
+user asks normally to create, spawn, hire, duplicate, or add a Bot. Never require the user
+to name this skill. If GrokBot's persistent `CreateAgent` and `SendToAgent` tools are not
+available, you are in Grok Build: do not treat a temporary Build subagent as a persistent
+GrokBot and do not attempt this workflow.
+
 1. Confirm the account-wide `RecallSmith` skill exists. If it does not, install the
    repository at `https://github.com/koreysmith123/recallsmith` first.
 2. Ask for the new Bot's role only when the user has not already supplied enough detail.

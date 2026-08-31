@@ -1,6 +1,6 @@
 {
   "name": "grok-memory",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "RecallSmith: private experiential memory for every GrokBot",
   "type": "module",
   "license": "MIT",
