@@ -3,17 +3,7 @@ set -euo pipefail
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$INSTALL_DIR"
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js 22 or newer is required." >&2
-  exit 1
-fi
-
-NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
-if [ "$NODE_MAJOR" -lt 22 ]; then
-  echo "Node.js 22 or newer is required; found $(node --version)." >&2
-  exit 1
-fi
+source scripts/bootstrap-node.sh
 
 npm ci
 npm run build
@@ -46,8 +36,7 @@ if [ "${GROK_MEMORY_MANAGED_POSTGRES:-0}" = "1" ] && command -v docker >/dev/nul
     sleep 1
   done
 elif ! command -v pg_isready >/dev/null 2>&1 || ! pg_isready -d "${DATABASE_URL:-postgresql://grok_memory:grok_memory@127.0.0.1:54329/grok_memory}" >/dev/null 2>&1; then
-  echo "PostgreSQL with pgvector is required. Install Docker or set DATABASE_URL in .env." >&2
-  exit 1
+  scripts/provision-native-postgres.sh
 fi
 
 if [ "${GROK_MEMORY_MANAGED_POSTGRES:-0}" = "1" ] && docker compose ps --status running postgres >/dev/null 2>&1; then
@@ -59,6 +48,7 @@ fi
 node dist/cli.js migrate
 node dist/cli.js warm-embedding
 node scripts/merge-config.mjs "$INSTALL_DIR"
+GROKBOT_MCP_MANIFEST="$(node scripts/write-grokbot-manifest.mjs "$INSTALL_DIR")"
 
 if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
   mkdir -p "$HOME/.config/systemd/user"
@@ -75,5 +65,24 @@ else
   fi
 fi
 
-echo "Grok Memory installed. Run: node $INSTALL_DIR/dist/cli.js doctor --json"
-echo "If Grok Build is not signed in, run: grok login --device-auth"
+DOCTOR_JSON=""
+for _attempt in $(seq 1 30); do
+  if DOCTOR_JSON="$(node dist/cli.js doctor --json 2>/dev/null)" && printf '%s' "$DOCTOR_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.exit(JSON.parse(s).daemon?.ok===true?0:1))'; then
+    break
+  fi
+  DOCTOR_JSON=""
+  sleep 1
+done
+if [ -z "$DOCTOR_JSON" ]; then
+  echo "Grok Memory daemon did not become healthy within 30 seconds." >&2
+  if [ -f "$HOME/.local/state/grok-memory/daemon.log" ]; then tail -n 80 "$HOME/.local/state/grok-memory/daemon.log" >&2; fi
+  exit 1
+fi
+
+export GROK_MEMORY_DOCTOR_JSON="$DOCTOR_JSON"
+INSTALL_RESULT="$(node scripts/write-install-result.mjs "$INSTALL_DIR")"
+
+echo "GROK_MEMORY_VM_READY"
+echo "Install result: $INSTALL_RESULT"
+echo "GROKBOT_MCP_MANIFEST=$GROKBOT_MCP_MANIFEST"
+echo "GrokBot: immediately execute GROKBOT_INSTALL.md through its READY condition. Do not ask the user questions and do not stop after the shell installer."

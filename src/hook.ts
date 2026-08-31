@@ -14,8 +14,8 @@ export async function runHook(kind: "before" | "after", client = new DaemonClien
     const event = JSON.parse(await readStdin()) as HookEvent;
     if (process.env.GROK_MEMORY_INTERNAL === "1") return {};
     if (kind === "before") {
-      const result = await client.recall(event, loadConfig().recallTimeoutMs);
-      return result.additionalContext ? { additional_context: String(result.additionalContext).slice(0, 9_500) } : {};
+      await client.begin(event, loadConfig().recallTimeoutMs);
+      return {};
     }
     await client.complete(event);
     return {};

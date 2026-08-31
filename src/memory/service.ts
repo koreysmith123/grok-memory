@@ -15,11 +15,7 @@ export interface RecallResult {
   interpreted: ThreeLevels;
   hits: SearchHit[];
   degraded: boolean;
-}
-
-function transcriptFromEvent(event: HookEvent, recent: Array<{ userText: string; assistantText: string }> = []): string {
-  const history = recent.map((turn) => `User: ${turn.userText}\nAssistant: ${turn.assistantText}`).join("\n\n");
-  return `${history}${history ? "\n\n" : ""}Current user request: ${String(event.prompt ?? "")}`.slice(-24_000);
+  memoryServiceMs: number;
 }
 
 function safeText(text: string): string {
@@ -73,26 +69,39 @@ export class MemoryService {
 
   async identity(event: HookEvent): Promise<Identity> { return resolveIdentity(event, this.config, this.repository); }
 
-  async recall(event: HookEvent, signal?: AbortSignal): Promise<RecallResult> {
+  async begin(event: HookEvent): Promise<Identity> {
+    const identity = await this.identity(event);
+    const generationId = String(event.generation_id ?? `generation-${Date.now()}`);
+    await this.repository.recordPrompt(identity, generationId, String(event.prompt ?? "").slice(0, 24_000), typeof event.model === "string" ? event.model : undefined);
+    return identity;
+  }
+
+  async recall(event: HookEvent, signal?: AbortSignal, suppliedQueries?: ThreeLevels): Promise<RecallResult> {
     const started = Date.now();
     const identity = await this.identity(event);
     const generationId = String(event.generation_id ?? `generation-${Date.now()}`);
     const currentPrompt = String(event.prompt ?? "").slice(0, 24_000);
     await this.repository.recordPrompt(identity, generationId, currentPrompt, typeof event.model === "string" ? event.model : undefined);
-    const prompt = transcriptFromEvent(event, await this.repository.recentTurns(identity, 6));
-    let interpreted: ThreeLevels;
-    let degraded = false;
-    try { interpreted = await this.grok.interpret(interpretationPrompt(prompt), signal); }
-    catch { interpreted = { concrete: currentPrompt, abstract: currentPrompt, meta: currentPrompt }; degraded = true; }
+    // The hot path must never start a second Grok Build session. In production,
+    // GrokBot supplies these three queries in its MCP tool call using the context
+    // it is already reasoning over. Hooks and legacy callers safely fall back to
+    // the literal prompt for all lanes without making a generative request.
+    const interpreted: ThreeLevels = suppliedQueries ?? {
+      concrete: currentPrompt,
+      abstract: currentPrompt,
+      meta: currentPrompt,
+    };
+    const degraded = suppliedQueries === undefined;
     const queryVectors = await Promise.all(LEVELS.map((level) => this.embedder.embed(interpreted[level], "query")));
     const laneResults = await Promise.all(LEVELS.map((level, index) => this.repository.search(identity, level, interpreted[level], queryVectors[index]!, 6)));
     const lanes = Object.fromEntries(LEVELS.map((level, index) => [level, laneResults[index]!])) as Record<MemoryLevel, SearchHit[]>;
     const hits = selectAcrossLanes(lanes);
     await this.repository.recordExposures(identity, generationId, hits).catch(() => undefined);
     const additionalContext = formatContext(hits);
+    const memoryServiceMs = Date.now() - started;
     logger.log("info", "memory_recall", { ownerId: identity.ownerId, botId: identity.botId, conversationId: identity.conversationId,
-      generationId, correlationId: generationId, durationMs: Date.now() - started, outcome: degraded ? "degraded" : "ok", hitCount: hits.length });
-    return { ...(additionalContext ? { additionalContext } : {}), identity, interpreted, hits, degraded };
+      generationId, correlationId: generationId, durationMs: memoryServiceMs, memoryServiceMs, outcome: degraded ? "degraded" : "ok", hitCount: hits.length });
+    return { ...(additionalContext ? { additionalContext } : {}), identity, interpreted, hits, degraded, memoryServiceMs };
   }
 
   async complete(event: HookEvent): Promise<void> {
@@ -105,14 +114,23 @@ export class MemoryService {
 
   async remember(identity: Identity, text: string, scopeType: "bot" | "project" | "conversation" = "bot"): Promise<string> {
     const levels = await this.grok.interpret(interpretationPrompt(text));
+    return this.rememberStructured(identity, levels, { concrete: text, abstract: levels.abstract, meta: levels.meta }, scopeType, 70);
+  }
+
+  async rememberStructured(identity: Identity, trigger: ThreeLevels, body: ThreeLevels,
+    scopeType: "bot" | "project" | "conversation" = "bot", importance = 70): Promise<string> {
     const scopeKey = scopeType === "conversation" ? identity.conversationId : scopeType === "project" ? identity.projectId ?? identity.botId : identity.botId;
-    const draft = memoryDraftSchema.parse({ trigger: levels, body: { concrete: text, abstract: levels.abstract, meta: levels.meta }, importance: 70,
+    const draft = memoryDraftSchema.parse({ trigger, body, importance,
       scopeType, scopeKey, sourceGenerationId: `explicit:${crypto.randomUUID()}` });
     return this.repository.save(identity, draft, await embeddingsForDraft(this.embedder, draft));
   }
 
-  async search(identity: Identity, text: string): Promise<RecallResult> {
-    return this.recall({ prompt: text, conversation_id: identity.conversationId, generation_id: `mcp-search:${crypto.randomUUID()}`, bot_id: identity.botId });
+  async search(identity: Identity, text: string, queries?: ThreeLevels): Promise<RecallResult> {
+    return this.recall(
+      { prompt: text, conversation_id: identity.conversationId, generation_id: `mcp-search:${crypto.randomUUID()}`, bot_id: identity.botId },
+      undefined,
+      queries,
+    );
   }
 
   async processJob(job: ClaimedJob, signal?: AbortSignal): Promise<void> {

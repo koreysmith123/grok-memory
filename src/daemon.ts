@@ -6,6 +6,7 @@ import { identityArgs } from "./http-client.js";
 import { logger } from "./log.js";
 import type { MemoryService } from "./memory/service.js";
 import type { HookEvent } from "./types.js";
+import { threeLevelsSchema } from "./memory/schemas.js";
 
 async function json(req: IncomingMessage): Promise<any> {
   let body = "";
@@ -39,9 +40,10 @@ export class MemoryDaemon {
           const timer = setTimeout(() => controller.abort(), this.config.recallTimeoutMs - 100);
           try {
             const result = await this.service.recall(body as HookEvent, controller.signal);
-            return send(res, 200, { additionalContext: result.additionalContext, identity: result.identity, interpreted: result.interpreted, hits: result.hits, degraded: result.degraded });
+            return send(res, 200, { additionalContext: result.additionalContext, identity: result.identity, interpreted: result.interpreted, hits: result.hits, degraded: result.degraded, memoryServiceMs: result.memoryServiceMs });
           } finally { clearTimeout(timer); }
         }
+        if (req.url === "/v1/prompt") { await this.service.begin(body as HookEvent); return send(res, 200, { ok: true }); }
         if (req.url === "/v1/turn") { await this.service.complete(body as HookEvent); return send(res, 200, { ok: true }); }
         if (req.url === "/v1/health") return send(res, 200, await this.repository.health());
         if (req.url?.startsWith("/v1/tools/")) return this.handleTool(req.url.slice("/v1/tools/".length), body, res);
@@ -81,7 +83,16 @@ export class MemoryDaemon {
     if (name === "health") return send(res, 200, await this.repository.health());
     const identity = identityArgs(args);
     if (name === "search") return send(res, 200, await this.service.search(identity, String(args.query ?? "")));
-    if (name === "remember") return send(res, 200, { id: await this.service.remember(identity, String(args.text ?? ""), (args.scopeType as any) ?? "bot") });
+    if (name === "recall") {
+      const queries = threeLevelsSchema.parse({ concrete: args.concrete, abstract: args.abstract, meta: args.meta });
+      return send(res, 200, await this.service.search(identity, String(args.currentContext ?? args.concrete ?? ""), queries));
+    }
+    if (name === "remember") {
+      const trigger = threeLevelsSchema.parse({ concrete: args.triggerConcrete, abstract: args.triggerAbstract, meta: args.triggerMeta });
+      const body = threeLevelsSchema.parse({ concrete: args.bodyConcrete, abstract: args.bodyAbstract, meta: args.bodyMeta });
+      return send(res, 200, { id: await this.service.rememberStructured(identity, trigger, body,
+        (args.scopeType as any) ?? "bot", Number(args.importance ?? 70)) });
+    }
     if (name === "bind") { await this.repository.bind(identity); return send(res, 200, { ok: true, identity }); }
     if (name === "inspect") return send(res, 200, { memories: await this.repository.inspect(identity, Math.min(100, Number(args.limit ?? 20))) });
     if (name === "rate") { await this.repository.rate(identity, String(args.memoryId), String(args.generationId), Number(args.usefulness)); return send(res, 200, { ok: true }); }

@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import type { HookEvent } from "./types.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import type { HookEvent, ThreeLevels } from "./types.js";
 
 export function renderAdditionalContext(content: string | undefined): string | undefined {
   const normalized = content?.trim();
@@ -40,6 +42,35 @@ export interface EmulatedTurn {
   attachments?: unknown[];
   inputTokens?: number;
   outputTokens?: number;
+  searchQueries?: ThreeLevels;
+}
+
+async function mcpRecall(turn: EmulatedTurn): Promise<string | undefined> {
+  const sourceMode = import.meta.url.endsWith(".ts");
+  const entry = fileURLToPath(new URL(sourceMode ? "./cli.ts" : "./cli.js", import.meta.url));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: sourceMode ? ["--import", "tsx", entry, "mcp"] : [entry, "mcp"],
+    env: Object.fromEntries(Object.entries(process.env).filter((item): item is [string, string] => typeof item[1] === "string")),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "grokbot-memory-emulator", version: "0.1.0" }, { capabilities: {} });
+  const queries = turn.searchQueries ?? {
+    concrete: turn.user,
+    abstract: `The broader task and concepts represented by: ${turn.user}`,
+    meta: `The recurring strategy, tradeoff, or failure pattern behind: ${turn.user}`,
+  };
+  try {
+    await client.connect(transport);
+    const response = await client.callTool({ name: "memory_recall", arguments: {
+      botId: turn.botId,
+      conversationId: turn.conversationId,
+      ...(turn.projectId ? { projectId: turn.projectId } : {}),
+      currentContext: turn.user,
+      ...queries,
+    } });
+    return (response.structuredContent as { additionalContext?: string } | undefined)?.additionalContext;
+  } finally { await client.close(); }
 }
 
 export class GrokBotEmulator {
@@ -51,7 +82,8 @@ export class GrokBotEmulator {
       attachments: turn.attachments ?? [] }));
     const response = JSON.parse(before.stdout) as { additional_context?: string };
     const hookContext = response.additional_context;
-    const injected = renderAdditionalContext(hookContext);
+    const recalledContext = await mcpRecall(turn);
+    const injected = renderAdditionalContext(recalledContext ?? hookContext);
     await subprocess(["hook", "after"], JSON.stringify({ ...base, hook_event_name: "afterAgentResponse", text: turn.assistant,
       input_tokens: turn.inputTokens ?? 0, output_tokens: turn.outputTokens ?? 0 }));
     return { ...(injected ? { injected } : {}), ...(hookContext ? { hookContext } : {}) };

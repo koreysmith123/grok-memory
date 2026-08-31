@@ -33,7 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(explicitBotId ? { explicitBotId } : {}),
     grokBinary: env.GROK_MEMORY_GROK_BINARY?.trim() || "grok",
     ...(env.GROK_MEMORY_MODEL?.trim() ? { grokModel: env.GROK_MEMORY_MODEL.trim() } : {}),
-    recallTimeoutMs: positiveInteger(env.GROK_MEMORY_RECALL_TIMEOUT_MS, 8_000),
+    recallTimeoutMs: positiveInteger(env.GROK_MEMORY_RECALL_TIMEOUT_MS, 1_800),
     jobPollMs: positiveInteger(env.GROK_MEMORY_JOB_POLL_MS, 500),
     retentionDays: positiveInteger(env.GROK_MEMORY_TRANSCRIPT_RETENTION_DAYS, 30),
     dataDir,

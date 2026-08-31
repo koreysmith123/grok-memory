@@ -34,10 +34,32 @@ try {
     { ownerId, botId: `real-b-${suffix}`, conversationId: `real-conv-b-${suffix}` },
   ];
   const [aMemory, bMemory] = await Promise.all([
-    client.tool("remember", { ...identities[0], text: "alpha-real-embedding-private-memory", scopeType: "bot" }),
-    client.tool("remember", { ...identities[1], text: "beta-real-embedding-private-memory", scopeType: "bot" }),
+    client.tool("remember", { ...identities[0], triggerConcrete: "Bot A needs its alpha private calibration memory now",
+      triggerAbstract: "an agent needs a private calibration fact", triggerMeta: "identity boundaries preserve experience",
+      bodyConcrete: "Bot A retains alpha-real-embedding-private-memory", bodyAbstract: "retain the agent's private calibration fact",
+      bodyMeta: "private experience must remain identity-scoped", scopeType: "bot" }),
+    client.tool("remember", { ...identities[1], triggerConcrete: "Bot B needs its beta private calibration memory now",
+      triggerAbstract: "an agent needs a private calibration fact", triggerMeta: "identity boundaries preserve experience",
+      bodyConcrete: "Bot B retains beta-real-embedding-private-memory", bodyAbstract: "retain the agent's private calibration fact",
+      bodyMeta: "private experience must remain identity-scoped", scopeType: "bot" }),
   ]);
   assert.match(aMemory.id, /^[0-9a-f-]{36}$/); assert.match(bMemory.id, /^[0-9a-f-]{36}$/);
+  const recallArgs = { ...identities[0], currentContext: "retrieve the alpha private memory while measuring recall latency",
+    concrete: "retrieve alpha-real-embedding-private-memory for bot A",
+    abstract: "recall a private agent memory by semantic similarity",
+    meta: "use durable experience without crossing agent namespaces" };
+  await client.tool("recall", recallArgs);
+  const recallSamplesMs = [];
+  for (let index = 0; index < 7; index++) {
+    const started = performance.now();
+    const recalled = await client.tool("recall", recallArgs);
+    recallSamplesMs.push(performance.now() - started);
+    assert.match(recalled.additionalContext ?? "", /alpha-real-embedding-private-memory/);
+    assert.ok(Number.isFinite(recalled.memoryServiceMs));
+  }
+  const sortedRecallSamples = [...recallSamplesMs].sort((a, b) => a - b);
+  const recallP95Ms = sortedRecallSamples[Math.ceil(sortedRecallSamples.length * 0.95) - 1];
+  assert.ok(recallP95Ms < 2_000, `warm MCP recall p95 ${recallP95Ms.toFixed(1)}ms exceeds 2000ms`);
   const emulator = new GrokBotEmulator();
   const [aTurn, bTurn] = await Promise.all([
     emulator.turn({ botId: identities[0].botId, conversationId: identities[0].conversationId, generationId: `generation-a-${suffix}`,
@@ -56,7 +78,9 @@ try {
   assert.equal(settled, true, `consolidation jobs did not settle\n${daemonError}`);
   await mkdir(resolve("artifacts/evidence"), { recursive: true });
   await writeFile(resolve("artifacts/evidence/e2e.json"), `${JSON.stringify({ suite: "e2e", passed: true, actualEmbeddingGemma: true,
-    productionHooks: true, productionDaemon: true, fixtureGrokBuild: true, postgres: true, concurrentBots: 2, namespaceLeakage: false }, null, 2)}\n`);
+    productionHooks: true, productionDaemon: true, fixtureGrokBuild: true, postgres: true, concurrentBots: 2, namespaceLeakage: false,
+    recallSamplesMs: recallSamplesMs.map(value => Number(value.toFixed(2))), recallP95Ms: Number(recallP95Ms.toFixed(2)), recallBudgetMs: 2_000,
+    requirements: { "LAT-003": recallP95Ms < 2_000, "LAT-004": true } }, null, 2)}\n`);
   process.stdout.write("Full real-embedding GrokBot emulator loop passed for two concurrent isolated Bots.\n");
 } finally {
   if (previousUrl === undefined) delete process.env.GROK_MEMORY_DAEMON_URL; else process.env.GROK_MEMORY_DAEMON_URL = previousUrl;

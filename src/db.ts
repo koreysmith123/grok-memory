@@ -135,7 +135,11 @@ export class PostgresRepository implements MemoryRepository {
     const column = { concrete: "concrete", abstract: "abstract", meta: "meta" }[level];
     return this.scoped(identity, async (client) => {
       await client.query("SET LOCAL hnsw.iterative_scan = 'strict_order'");
-      const scope = `((scope_type='bot' AND scope_key=$3) OR (scope_type='conversation' AND scope_key=$4) OR (scope_type='project' AND $5::text IS NOT NULL AND scope_key=$5) OR bot_id<>$3)`;
+      // Namespace predicates are enforced in the query as well as by RLS. Tests,
+      // migrations, and some operator commands may connect as a table owner or
+      // superuser, for whom PostgreSQL can bypass RLS. Cross-Bot rows are visible
+      // only when an explicit grant exists.
+      const scope = `(owner_id=$7 AND ((bot_id=$3 AND ((scope_type='bot' AND scope_key=$3) OR (scope_type='conversation' AND scope_key=$4) OR (scope_type='project' AND $5::text IS NOT NULL AND scope_key=$5))) OR (bot_id<>$3 AND EXISTS (SELECT 1 FROM memory_grants grant_row WHERE grant_row.memory_id=memories.id AND grant_row.grantee_bot_id=$3))))`;
       const result = await client.query(`WITH vector_candidates AS MATERIALIZED (
         SELECT id FROM memories WHERE status='active' AND ${scope} ORDER BY embedding_${column} <=> $1::vector LIMIT $6
       ), lexical_candidates AS MATERIALIZED (
@@ -148,7 +152,7 @@ export class PostgresRepository implements MemoryRepository {
         ts_rank_cd(to_tsvector('english',trigger_${column} || ' ' || body_${column}), plainto_tsquery('english',$2)) AS lexical_score,
         importance, usefulness, updated_at
         FROM memories WHERE id IN (SELECT id FROM candidates)`,
-        [vectorLiteral(embedding), text, identity.botId, identity.conversationId, identity.projectId ?? null, limit * 3]);
+        [vectorLiteral(embedding), text, identity.botId, identity.conversationId, identity.projectId ?? null, limit * 3, identity.ownerId]);
       return result.rows.map((row: any) => {
         const ageDays = Math.max(0, (Date.now() - new Date(row.updated_at).getTime()) / 86_400_000);
         const vectorScore = Number(row.vector_score);

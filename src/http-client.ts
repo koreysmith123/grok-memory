@@ -10,8 +10,9 @@ export class DaemonClient {
   }
 
   recall(event: HookEvent, timeoutMs?: number) { return this.post<any>("/v1/recall", event, timeoutMs); }
+  begin(event: HookEvent, timeoutMs?: number) { return this.post<any>("/v1/prompt", event, timeoutMs); }
   complete(event: HookEvent) { return this.post<any>("/v1/turn", event, 2_000); }
-  tool(name: string, args: Record<string, unknown>) { return this.post<any>(`/v1/tools/${name}`, args, 30_000); }
+  tool(name: string, args: Record<string, unknown>) { return this.post<any>(`/v1/tools/${name}`, args, name === "recall" ? 3_000 : 30_000); }
   health() { return this.post<any>("/v1/health", {}, 3_000); }
 }
 

@@ -9,20 +9,20 @@ to `artifacts/validation-report.json`; live external checks are written by
 
 | ID | Requirement | Measure / release gate |
 |---|---|---|
-| MOD-001 | Grok Build is the only generative model used by the system. | Dependency and source scan finds no other generative provider or model; architecture test passes. |
+| MOD-001 | The active GrokBot/Grok Build model is the only generative model used by the system. | Dependency and source scan finds no other generative provider or model; architecture test passes. |
 | MOD-002 | EmbeddingGemma 300M is the only local model. | Embedding adapter identifies `onnx-community/embeddinggemma-300m-ONNX`; source scan finds no other local model. |
-| MOD-003 | Grok Build runs without tools, web search, subagents, or Grok Build memory. | Adapter invocation contains `--tools ''`, `--disable-web-search`, `--no-subagents`, `--no-memory`, `--max-turns 1`, and a system-prompt override; contract test passes. |
+| MOD-003 | Asynchronous Grok Build consolidation runs without tools, web search, subagents, or Grok Build memory. | Worker adapter invocation contains `--tools ''`, `--disable-web-search`, `--no-subagents`, `--no-memory`, `--max-turns 1`, and a system-prompt override; contract test passes. |
 | MOD-004 | Grok Build output is schema-validated before use. | Invalid, fenced, partial, and valid JSON fixtures are tested; only valid three-level or consolidation schemas are accepted. |
 | MOD-005 | Grok Build failure never prevents GrokBot from answering. | Timeout, missing binary, non-zero exit, and invalid-output tests return a fail-open hook response within the configured deadline. |
 | MOD-006 | No secret or GrokBot internal credential is extracted or copied. | Source scan rejects known token/cookie/keychain scraping patterns; installer accepts only existing Grok login or `XAI_API_KEY`. |
-| MOD-007 | A persistent memory worker owns Grok Build work; lifecycle hooks never launch Grok Build directly. | Process-boundary test proves hooks only query/enqueue and the long-running worker performs all Grok Build invocations. |
+| MOD-007 | Retrieval never launches a nested Grok Build process; a persistent worker owns asynchronous consolidation. | Process-boundary test proves MCP recall performs zero generative calls and only the worker invokes the standalone adapter. |
 
 ## 2. Memory semantics
 
 | ID | Requirement | Measure / release gate |
 |---|---|---|
 | MEM-001 | Every searchable memory contains concrete, abstract, and meta triggers and bodies. | Database constraints reject missing levels; repository tests cover rejection. |
-| MEM-002 | Current context is interpreted at concrete, abstract, and meta levels before semantic retrieval when Grok Build is healthy. | End-to-end trace contains interpretation followed by three search lanes. |
+| MEM-002 | GrokBot uses its already-active context to author concrete, abstract, and meta search queries in the `memory_recall` MCP call. | MCP contract and end-to-end trace contain three distinct query lanes and zero nested model calls. |
 | MEM-003 | Each level is embedded separately with correct query/document prefixes. | Embedding contract test captures all six prefixed inputs. |
 | MEM-004 | Retrieval combines vector similarity, PostgreSQL full-text rank, importance, recency, and observed usefulness. | Ranking unit tests independently perturb every factor and verify score direction. |
 | MEM-005 | Retrieval selects distinct memories across all three abstraction lanes. | Duplicate-across-lanes test returns one occurrence and fills remaining slots when available. |
@@ -33,6 +33,7 @@ to `artifacts/validation-report.json`; live external checks are written by
 | MEM-010 | Memory embeddings are computed on creation/change and are not recomputed during ordinary retrieval. | Embedding spy asserts retrieval only embeds three queries. |
 | MEM-011 | Surfaced memories collect exposure and usefulness signals without blocking a turn. | Exposure rows are recorded; rating tool updates usefulness; failures fail open. |
 | MEM-012 | Raw conversation transcripts have configurable retention and can be pruned without deleting distilled memories. | Retention integration test prunes expired turns and preserves memories. |
+| MEM-013 | Normal durable writes are authored by the active GrokBot with three distinct triggers and three independently useful bodies and require no standalone Grok Build authentication. | MCP schema requires all six original NeoSmith fields; persistence test and throwing Grok-adapter spy prove the exact values are stored with zero generative calls. |
 
 ## 3. Identity, namespaces, and isolation
 
@@ -63,28 +64,53 @@ to `artifacts/validation-report.json`; live external checks are written by
 | ID | Requirement | Measure / release gate |
 |---|---|---|
 | HOK-001 | `beforeSubmitPrompt` accepts the reconstructed GrokBot fields and unknown future fields. | Contract fixture parses prompt, attachments, conversation/model/generation fields and ignores additions. |
-| HOK-002 | The before hook returns only a valid GrokBot response with optional `additional_context`. | Exact response-schema tests pass. |
+| HOK-002 | The before hook returns only valid bounded JSON; MCP tool results are the primary same-turn memory carrier. | Exact response-schema and MCP result tests pass. |
 | HOK-003 | Before-hook output never exceeds 10,000 characters and contains no stdout logging. | Boundary and subprocess channel tests pass. |
 | HOK-004 | `afterAgentResponse` accepts the reconstructed response/token fields and enqueues work idempotently. | Contract and replay tests pass. |
 | HOK-005 | Hook errors are logged to stderr and return `{}` rather than blocking GrokBot. | Subprocess fault tests pass. |
 | HOK-006 | Hook configuration is valid version-1 Cursor/GrokBot configuration and is fail-open. | Config validator test mirrors reconstructed validators. |
-| HOK-007 | Recall has a hard configurable latency budget; consolidation never runs synchronously in the response hook. | Clock-controlled tests and process trace pass. |
+| HOK-007 | Hook fallback has a hard configurable latency budget; consolidation never runs synchronously in a lifecycle hook. | Clock-controlled tests and process trace pass. |
 
 ## 6. MCP server
 
 | ID | Requirement | Measure / release gate |
 |---|---|---|
 | MCP-001 | Server implements MCP initialize, initialized notification, tools/list, and tools/call over clean stdio. | Emulator protocol conformance suite passes for MCP 2025-06-18. |
-| MCP-002 | Tools exist for search, explicit save, usefulness feedback, Bot binding, inspection, and health. | Tool catalog snapshot and call tests pass. |
+| MCP-002 | Tools exist for three-level same-turn recall, literal search, explicit save, usefulness feedback, Bot binding, inspection, and health. | Tool catalog snapshot and call tests pass. |
 | MCP-003 | Tool inputs are JSON-schema validated and failures use `isError: true` where appropriate. | Invalid-input corpus passes. |
 | MCP-004 | MCP logs never contaminate stdout. | Mixed-load subprocess test parses every stdout line as JSON-RPC. |
 | MCP-005 | Destructive forgetting requires an exact ID and explicit confirmation token. | Safety tests reject broad or unconfirmed deletion. |
+| MCP-006 | `memory_recall` clearly instructs GrokBot to derive three distinct semantic lanes from its live context and call the tool near the start of substantive turns. | Tool metadata snapshot verifies timing, lane semantics, and fallible-context language. |
+| MCP-007 | Every memory-bearing tool requires an explicit stable `botId`; omission is rejected by MCP schema validation without reaching or crashing the daemon. | Protocol test omits `botId`, receives JSON-RPC invalid-params, and verifies health remains green. |
+
+## 6b. Autonomous GrokBot behavior
+
+| ID | Requirement | Measure / release gate |
+|---|---|---|
+| BOT-001 | A global `Memory Operating Loop` skill exposes the original NeoSmith three-level definitions, examples, resolution triggers, and safety rules to every existing and newly created Bot. | Skill contract test verifies the preserved language and installer handoff; real GrokBot reports the global skill enabled. |
+| BOT-002 | Without the user mentioning memory or tools, every ordinary substantive turn calls `memory_recall` before planning/answering with distinct concrete, abstract, and meta queries authored from live context. | Fresh-channel real GrokBot test uses a neutral task, then records tool-call arguments and timing. |
+| BOT-003 | Without the user asking to save anything, a resolved durable preference, correction, decision, outcome, or lesson causes `memory_remember` with all six original fields; trivial turns create no memory. | Real GrokBot paired positive/negative scenarios inspect the resulting memory IDs and field values. |
+| BOT-004 | A later clean conversation retrieves the autonomously created memory under the same stable Bot ID without the prompt mentioning memory or repeating the stored answer. | Cross-conversation canary returns the unique fact and includes its matching memory ID in a non-degraded result. |
+| BOT-005 | Activation preserves each existing Bot description while appending the durable operating-loop rule; newly created Bots activate through the same explicit one-time repository install with no recurring scanner. | Installer instructions and real profile inspection verify preservation; the wasteful polling experiment is deleted and the handoff explicitly requires each new Bot to self-install once. |
+| BOT-006 | Bot-scoped memories never leak between Bots, while a fact deliberately communicated from one Bot to another can be learned by the recipient as its own Bot-scoped memory. | Two real Bots receive disjoint multi-fact histories, fail reciprocal leakage probes, then complete a direct handoff whose fact is recalled and inspected under the recipient's distinct Bot ID in a clean channel. |
+| BOT-007 | Each Bot can retrieve several durable facts after intervening turns and across clean conversations, including facts learned from another Bot. | Fire reconstructs a four-field operations card; UI/UX reconstructs three private standards plus the transferred rule after multiple rooms and unrelated probes. |
+| BOT-008 | A fresh Bot given only the repository URL and `Install this.` completes VM setup, native MCP registration, exact skill installation, own-profile activation, health checks, and a disposable canary without questions or follow-up help. | Destructive clean-room GrokBot gate deletes prior Bots/data, creates one fresh Bot, sends one install message, and requires a self-reported `GROK_MEMORY_READY` with independently inspected evidence. |
+| BOT-009 | Autonomous installation is idempotent, creates no polling routine, changes no sibling Bot, and leaves no canary memory behind. | Contract tests plus clean-room inspection verify self-only activation, zero recurring routines, and exact canary deletion. |
+
+## 6a. Latency
+
+| ID | Requirement | Measure / release gate |
+|---|---|---|
+| LAT-001 | The recall hot path makes zero generative model or Grok Build subprocess calls. | A throwing Grok adapter spy records zero calls during three-level MCP recall. |
+| LAT-002 | After model warm-up, three query embeddings and three namespace-filtered searches execute in parallel. | Instrumented trace proves concurrent starts and no serial lane dependency. |
+| LAT-003 | Warm MCP recall service latency is below 2,000 ms at p95 on the reference CPU-only installation. | End-to-end test performs at least five real EmbeddingGemma/PostgreSQL recalls, records samples, and fails when p95 is 2,000 ms or higher. |
+| LAT-004 | Latency reporting separates GrokBot's normal tool-decision time from memory-service execution time. | Structured logs and emulator evidence expose `memoryServiceMs`; documentation does not claim control over host-model first-token latency. |
 
 ## 7. GrokBot emulator
 
 | ID | Requirement | Measure / release gate |
 |---|---|---|
-| EMU-001 | Emulator invokes the exact production hook executables and MCP server. | Architecture assertion rejects emulator-only adapters. |
+| EMU-001 | Emulator invokes the exact production hook executables and MCP recall contract. | Architecture assertion rejects emulator-only retrieval adapters. |
 | EMU-002 | Emulator models Bot, workspace, conversation, generation, model, attachments, and token metadata. | Fixture round-trip tests pass. |
 | EMU-003 | Emulator injects hook `additional_context` as a sanitized system reminder with the verified 10,000-character rule. | Snapshot matches reconstructed carrier behavior. |
 | EMU-004 | Emulator supports natural multi-turn console use and transcript replay. | CLI smoke and replay tests pass. |
@@ -104,6 +130,9 @@ to `artifacts/validation-report.json`; live external checks are written by
 | INS-006 | Uninstall removes only owned services/config entries and preserves memories unless explicitly requested. | Uninstall safety test with sentinel files passes. |
 | INS-007 | `doctor` gives actionable status for every external dependency and identity fallback. | Golden-output tests cover healthy and degraded installations. |
 | INS-008 | The repository contains no user-specific absolute paths or credentials. | Portability and secret scans pass. |
+| INS-009 | A stock GrokBot Linux VM with Node.js 20 automatically receives a checksum-verified private Node.js 22 runtime. | Bootstrap contract test checks architecture selection, checksum verification, private install path, and idempotence; live canary records Node 22. |
+| INS-010 | When Docker is unavailable on a Debian GrokBot VM, installation provisions PostgreSQL 17 plus pgvector and a dedicated local cluster automatically. | Provisioning contract test and live canary doctor verify PostgreSQL 17/pgvector on port 54329. |
+| INS-011 | Installation emits an absolute stdio MCP manifest and instructs GrokBot to register it through `AddMcpServer`, rather than treating `~/.cursor/mcp.json` as live GrokBot registration. | Manifest test plus live GrokBot status verify eight connected tools. |
 
 ## 9. Quality, observability, and documentation
 

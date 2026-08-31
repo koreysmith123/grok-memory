@@ -11,14 +11,16 @@ for (const suite of ["deterministic", "postgres", "live"]) {
   sources[suite] = texts.join("\n");
 }
 const evidence = {};
-for (const suite of ["deterministic", "postgres", "install", "e2e", "live"]) {
+for (const suite of ["deterministic", "postgres", "install", "e2e", "live", "grokbot"]) {
   try { evidence[suite] = JSON.parse(await readFile(resolve(`artifacts/evidence/${suite}.json`), "utf8")); }
   catch { evidence[suite] = { suite, passed: false, missing: true }; }
 }
 const rows = ids.map(id => {
   const requiredSuites = ["deterministic", "postgres", "live"].filter(suite => sources[suite].includes(id));
-  if (new Set(["INS-001", "INS-002", "INS-003", "INS-004", "INS-006", "INS-007"]).has(id)) requiredSuites.push("install");
+  if (new Set(["INS-001", "INS-002", "INS-003", "INS-004", "INS-006", "INS-007", "INS-009", "INS-010", "INS-011"]).has(id)) requiredSuites.push("install");
   if (new Set(["MEM-002", "MEM-003", "MEM-007", "MEM-008", "MEM-010", "ISO-002", "HOK-001", "HOK-002", "HOK-004", "EMU-001", "EMU-003", "EMU-005", "EMU-006"]).has(id)) requiredSuites.push("e2e");
+  if (new Set(["LAT-003", "LAT-004"]).has(id)) requiredSuites.push("e2e");
+  if (id.startsWith("BOT-")) requiredSuites.push("grokbot");
   if (id === "QUA-001") requiredSuites.push("postgres", "install", "e2e", "live");
   const uniqueSuites = [...new Set(requiredSuites)];
   const suitePass = suite => evidence[suite]?.requirements && id in evidence[suite].requirements ? evidence[suite].requirements[id] === true : evidence[suite]?.passed === true;

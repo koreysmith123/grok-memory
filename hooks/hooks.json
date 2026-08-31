@@ -5,7 +5,7 @@
       {
         "type": "command",
         "command": "node ${CURSOR_PLUGIN_ROOT}/dist/cli.js hook before",
-        "timeout": 10,
+        "timeout": 2,
         "loop_limit": null,
         "failClosed": false
       }
