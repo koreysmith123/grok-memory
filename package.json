@@ -1,7 +1,7 @@
 {
   "name": "grok-memory",
-  "version": "0.1.0",
-  "description": "Per-Bot experiential memory for GrokBot, powered by Grok Build and EmbeddingGemma",
+  "version": "0.2.0",
+  "description": "RecallSmith: private experiential memory for every GrokBot",
   "type": "module",
   "license": "MIT",
   "engines": { "node": ">=22" },

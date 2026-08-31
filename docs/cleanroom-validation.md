@@ -1,4 +1,8 @@
-# GrokBot clean-room validation
+# GrokBot clean-room validation (pre-RecallSmith branding)
+
+This record covers the v0.1.1 `Grok Memory` release. The service was subsequently branded
+RecallSmith and the release gate was expanded to require current-Bot initialization and a
+parent-created-child test. Historical result strings below are intentionally unchanged.
 
 Validated 2026-08-30 in the production GrokBot desktop app.
 

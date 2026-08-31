@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   }
   if (command === "warm-embedding") {
     const runtime = createRuntime();
-    const vector = await runtime.embedder.embed("Grok Memory installation health check", "document");
+    const vector = await runtime.embedder.embed("RecallSmith installation health check", "document");
     if (vector.length !== 768) throw new Error(`Expected 768 embedding dimensions, received ${vector.length}`);
     const integrity = await verifyOrCreateCacheManifest(runtime.config.modelCacheDir);
     await runtime.repository.close();

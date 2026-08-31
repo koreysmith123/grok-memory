@@ -17,7 +17,7 @@ await writeFile(resultPath, `${JSON.stringify({
   mcpManifestPath: manifestPath,
   manifest,
   doctor,
-  nextInstruction: "Execute GROKBOT_INSTALL.md through GROK_MEMORY_READY without asking the user questions.",
+  nextInstruction: "Execute GROKBOT_INSTALL.md through RECALLSMITH_READY without asking the user questions.",
 }, null, 2)}\n`, { mode: 0o600 });
 await chmod(resultPath, 0o600);
 process.stdout.write(resultPath);

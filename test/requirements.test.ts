@@ -29,15 +29,27 @@ test("INS-009 INS-010 INS-011 GrokBot VM bootstrap and MCP handoff are explicit"
   assert.match(await readFile(resolve(root, "GROKBOT_INSTALL.md"), "utf8"), /AddMcpServer/);
 });
 
-test("BOT-001 BOT-005 original NeoSmith operating loop is packaged for all GrokBots", async () => {
-  const skill = await readFile(resolve(root, "skills/grok-memory/SKILL.md"), "utf8");
+test("BOT-001 BOT-005 BOT-010 original NeoSmith loop and idempotent enrollment are packaged", async () => {
+  const skill = await readFile(resolve(root, "skills/recallsmith/SKILL.md"), "utf8");
   for (const phrase of ["every substantive", "snapshot of the exact moment", "sound like a real thought, not a clinical label", "deep pattern", "resolution point", "Do not force", "bodyConcrete", "bodyAbstract", "bodyMeta", "failed recall"]) assert.match(skill, new RegExp(phrase, "i"));
   assert.match(skill, /Ignorance is not a\s+durable lesson/i);
   assert.match(skill, /Korey is bracing/); assert.match(skill, /The user is anticipating a social situation/);
+  assert.match(skill, /Initialize this Bot/i); assert.match(skill, /Never reinstall a healthy shared service/i);
+  assert.match(skill, /Preserve your existing profile description byte-for-byte/i);
+  assert.match(skill, /RECALLSMITH_READY/); assert.doesNotMatch(skill, /every 5 minutes|\*\/5 \* \* \* \*/i);
   const handoff = await readFile(resolve(root, "GROKBOT_INSTALL.md"), "utf8");
   assert.match(handoff, /ListAgents/); assert.match(handoff, /Preserve your own existing profile description byte-for-byte/i);
   assert.match(handoff, /Do not create a polling routine/i); assert.match(handoff, /Update only your own profile/i);
   assert.doesNotMatch(handoff, /\*\/5 \* \* \* \*/);
+});
+
+test("BOT-011 creator skill bootstraps and verifies a distinct memory-enabled child", async () => {
+  const skill = await readFile(resolve(root, "skills/create-recallsmith-bot/SKILL.md"), "utf8");
+  for (const phrase of [
+    "CreateAgent", "SendToAgent", "Initialize the RecallSmith skill for your own Bot identity",
+    "RECALLSMITH_READY", "distinct stable Bot ID", "Do not copy the parent's Bot ID",
+    "do not create a polling routine", "Do not reinstall a healthy shared service",
+  ]) assert.match(skill, new RegExp(phrase, "i"));
 });
 
 test("BOT-008 BOT-009 one-message installation contract is strict and self-verifying", async () => {
@@ -47,7 +59,7 @@ test("BOT-008 BOT-009 one-message installation contract is strict and self-verif
   assert.match(agents, /execute\s+`GROKBOT_INSTALL\.md` completely/i);
   assert.match(agents, /Do not ask the user questions/i);
   for (const phrase of [
-    "GROK_MEMORY_READY", "AddMcpServer", "memory_health", "memory_remember",
+    "RECALLSMITH_READY", "AddMcpServer", "memory_health", "memory_remember",
     "memory_recall", "memory_inspect", "memory_forget", "Update only your own profile",
     "triggerConcrete", "triggerAbstract", "triggerMeta", "bodyConcrete", "bodyAbstract",
     "bodyMeta", "Do not create a polling routine", "Leave no canary data",

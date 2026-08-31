@@ -12,5 +12,5 @@ elif [ -f "$HOME/.local/state/grok-memory/daemon.pid" ]; then
   rm "$HOME/.local/state/grok-memory/daemon.pid"
 fi
 node "$INSTALL_DIR/scripts/remove-config.mjs" "$INSTALL_DIR"
-echo "Grok Memory integration removed. PostgreSQL data and this checkout were preserved."
+echo "RecallSmith integration removed. PostgreSQL data and this checkout were preserved."
 echo "Delete the database/volume only if you intentionally want to erase all memories."

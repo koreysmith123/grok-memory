@@ -1,18 +1,44 @@
-# Grok Memory
+# RecallSmith
+
+**Memory forged from experience.**
+
+RecallSmith is a private, persistent experiential-memory system for GrokBot. It understands
+the current situation at three levels—concrete, structural, and universal—then retrieves
+past experiences that rhyme with the moment. The established package name, command,
+installation directory, and database identifiers remain `grok-memory` for backward
+compatibility; the former GitHub URL redirects to RecallSmith.
 
 ## One-message install
 
 Give a brand-new GrokBot this repository URL followed by `Install this.` That Bot clones
 the repository to `/workspace/grok-memory`, runs the installer, registers its MCP server,
-installs the exact memory skill, activates only its own profile, performs and erases a
-private canary, and reports `GROK_MEMORY_READY`. It must do this without questions,
+installs the two RecallSmith skills, activates only its own profile, performs and erases a
+private canary, and reports `RECALLSMITH_READY`. It must do this without questions,
 follow-up prompts, polling routines, or manual troubleshooting. `AGENTS.md` and
 `GROKBOT_INSTALL.md` are the installation contract the Bot follows.
 
-Grok Memory gives every GrokBot a private, persistent experiential memory. It uses
+RecallSmith gives every GrokBot a private, persistent experiential memory. It uses
 the active GrokBot/Grok Build model for all language understanding and reflection, EmbeddingGemma 300M for
 local embeddings, and PostgreSQL with pgvector for concurrent storage and search.
 There is no other local or hosted language model.
+
+## Add memory to a new Bot
+
+The computer service is shared and is installed only once. For a manually created Bot,
+send one message:
+
+> Initialize the RecallSmith skill.
+
+RecallSmith finds the healthy shared service, binds the Bot's own stable ID, appends the
+durable operating rule without replacing its role, runs and removes a private canary, and
+reports `RECALLSMITH_READY`. It does not reinstall PostgreSQL, pgvector, Node.js, or the
+embedding model when they are healthy.
+
+To have an existing Bot create a memory-enabled child, ask it to use the account-wide
+`Create RecallSmith Bot` skill and describe the child you want. The creator puts the
+RecallSmith bootstrap rule in the child's description, sends the child its initialization
+message, and waits for the child to verify its distinct private namespace. No recurring
+scanner or five-minute routine is used.
 
 ## Architecture
 
@@ -66,7 +92,7 @@ applies migrations, warms EmbeddingGemma, starts the daemon, and prints an absol
 stdio manifest from `.grok-memory/grokbot-mcp.json`.
 
 The GrokBot performing the installation automatically finishes the native
-`AddMcpServer` registration, skill/profile activation, disposable canary, and health
+`AddMcpServer` registration, both skill installations, profile activation, disposable canary, and health
 verification. A shell-written `~/.cursor/mcp.json` is retained only for Grok Build
 compatibility; it does not register the server in GrokBot.
 

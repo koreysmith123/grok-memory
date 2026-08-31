@@ -1,9 +1,9 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "grok-memory",
-  "displayName": "Grok Memory",
-  "description": "Private per-Bot experiential memory with automatic three-level recall",
-  "version": "0.1.0",
+  "displayName": "RecallSmith",
+  "description": "Memory forged from experience for every GrokBot",
+  "version": "0.2.0",
   "author": { "name": "Pattie Rae" },
   "license": "MIT",
   "hooks": "./hooks/hooks.json",

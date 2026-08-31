@@ -74,7 +74,7 @@ for _attempt in $(seq 1 30); do
   sleep 1
 done
 if [ -z "$DOCTOR_JSON" ]; then
-  echo "Grok Memory daemon did not become healthy within 30 seconds." >&2
+  echo "RecallSmith daemon did not become healthy within 30 seconds." >&2
   if [ -f "$HOME/.local/state/grok-memory/daemon.log" ]; then tail -n 80 "$HOME/.local/state/grok-memory/daemon.log" >&2; fi
   exit 1
 fi
