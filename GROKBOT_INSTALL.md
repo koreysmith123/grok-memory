@@ -17,7 +17,7 @@ is true.
 1. Read `.grok-memory/grokbot-mcp.json`. Invoke `AddMcpServer` with its exact stdio command
    under the stable name `user-grok-memory`. Re-register it if GrokBot cached an older
    schema. Confirm `memory_remember` exposes all six distinct fields: `bodyConcrete`,
-   `bodyAbstract`, `bodyMeta`, `queryConcrete`, `queryAbstract`, and `queryMeta`.
+   `bodyAbstract`, `bodyMeta`, `triggerConcrete`, `triggerAbstract`, and `triggerMeta`.
 2. Call `memory_health`. Require `ok=true` and `degraded=false`.
 3. Determine your own stable agent ID from your profile or `ListAgents`. Select only your
    individual Bot identity—never a group, channel, or another Bot.

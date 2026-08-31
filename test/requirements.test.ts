@@ -49,7 +49,8 @@ test("BOT-008 BOT-009 one-message installation contract is strict and self-verif
   for (const phrase of [
     "GROK_MEMORY_READY", "AddMcpServer", "memory_health", "memory_remember",
     "memory_recall", "memory_inspect", "memory_forget", "Update only your own profile",
-    "Do not create a polling routine", "Leave no canary data",
+    "triggerConcrete", "triggerAbstract", "triggerMeta", "bodyConcrete", "bodyAbstract",
+    "bodyMeta", "Do not create a polling routine", "Leave no canary data",
   ]) assert.match(handoff, new RegExp(phrase, "i"));
   assert.match(installer, /GROK_MEMORY_VM_READY/);
   assert.match(installer, /write-install-result\.mjs/);
